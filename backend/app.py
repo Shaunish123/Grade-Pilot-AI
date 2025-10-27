@@ -3,21 +3,40 @@ import json
 import re
 import io
 import google.generativeai as genai
-from flask import Flask, request, redirect, session, url_for, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Request # CHANGED: Imported FastAPI and Request
+from fastapi.responses import RedirectResponse, JSONResponse # CHANGED: Imported FastAPI responses
+from fastapi.middleware.cors import CORSMiddleware # CHANGED: Imported FastAPI CORS
+from starlette.middleware.sessions import SessionMiddleware # CHANGED: Imported SessionMiddleware
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
-from google.auth.transport.requests import Request
+# RENAMED: Renamed 'Request' to 'GoogleAuthRequest' to avoid conflict with FastAPI's 'Request'
+from google.auth.transport.requests import Request as GoogleAuthRequest 
 from google_auth_oauthlib.flow import Flow 
+
+import uvicorn # ADDED: For running the FastAPI server
+import datetime # ADDED: This import was used in the grading logic
 
 # --- 1. INITIAL CONFIGURATION ---
 load_dotenv()
-app = Flask(__name__)
-app.secret_key = os.urandom(24) 
-CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
+app = FastAPI() # CHANGED: Initialized FastAPI
+
+# ADDED: SessionMiddleware for session support, equivalent to Flask's app.secret_key
+# Note: Using os.urandom() means sessions will be invalidated on every server restart.
+# For production, use a static key, e.g., os.getenv("SESSION_SECRET_KEY").
+app.add_middleware(SessionMiddleware, secret_key=os.urandom(24))
+
+# CHANGED: Replaced Flask-CORS with FastAPI's CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"], # Explicitly adding methods
+    allow_headers=["*"], # Explicitly adding headers
+)
+
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 CLIENT_SECRETS_FILE = 'client_secret.json'
 
@@ -42,7 +61,8 @@ graded_assignments_history = []
 # --- 2. HELPER FUNCTIONS (No changes here, keeping for full context) ---
 
 def credentials_to_dict(credentials):
-    """Converts a Google Credentials object to a dictionary for Flask session storage."""
+    """Converts a Google Credentials object to a dictionary for session storage."""
+    # NO CHANGE: This function is framework-independent.
     return {
         'token': credentials.token,
         'refresh_token': credentials.refresh_token,
@@ -52,15 +72,20 @@ def credentials_to_dict(credentials):
         'scopes': credentials.scopes
     }
 
-def get_google_service(service_name, version):
+# MODIFIED: Function now requires the 'request' object to access the session
+def get_google_service(service_name, version, request: Request): 
     """
     Builds and returns an authorized Google API service object (e.g., Classroom, Drive).
     Handles refreshing expired access tokens using the refresh token.
+    
+    MODIFIED: Now takes 'request: Request' as an argument to access session data.
     """
-    if 'credentials' not in session:
+    # CHANGED: 'session' is now 'request.session'
+    if 'credentials' not in request.session:
         return None # User not authenticated
 
-    creds_data = session['credentials']
+    # CHANGED: 'session' is now 'request.session'
+    creds_data = request.session['credentials']
     creds = Credentials(
         token=creds_data['token'],
         refresh_token=creds_data['refresh_token'],
@@ -74,15 +99,19 @@ def get_google_service(service_name, version):
         if creds.expired and creds.refresh_token:
             print("Refreshing Google Access Token...")
             try:
-                creds.refresh(Request())
-                session['credentials'] = credentials_to_dict(creds)
+                # CHANGED: Using 'GoogleAuthRequest' to avoid name conflict
+                creds.refresh(GoogleAuthRequest()) 
+                # CHANGED: 'session' is now 'request.session'
+                request.session['credentials'] = credentials_to_dict(creds)
             except Exception as e:
                 print(f"Failed to refresh token: {e}")
-                session.clear()
+                # CHANGED: 'session' is now 'request.session'
+                request.session.clear()
                 return None
         else:
             print("Credentials invalid and no refresh token or not expired. Re-authentication needed.")
-            session.clear()
+            # CHANGED: 'session' is now 'request.session'
+            request.session.clear()
             return None
     
     try:
@@ -97,10 +126,14 @@ def extract_drive_file_id_from_url(url):
     Extracts the Google Drive file ID from various Google Drive/Docs/Sheets/Slides URL formats.
     Returns the file ID string, or None if not found.
     """
+    # NO CHANGE: This function is framework-independent.
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
     if match:
         return match.group(1)
     return None
+
+# --- (Previous code from last snippet) ---
+# ... (imports and helper functions) ...
 
 def download_drive_file_content(drive_service, file_id, file_name="unknown"):
     """
@@ -108,6 +141,7 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
     Handles native Google Workspace files (Docs, Sheets, Slides) by exporting to text/plain.
     Handles other text-based files (e.g., .txt, .docx, .pdf) by downloading raw content.
     """
+    # NO CHANGE: This function is framework-independent.
     try:
         file_metadata = drive_service.files().get(fileId=file_id, fields='mimeType, name').execute()
         mime_type = file_metadata.get('mimeType')
@@ -139,96 +173,155 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
         return None
 
 
-# --- 3. AUTHENTICATION ROUTES (No changes here, keeping for full context) ---
+# --- 3. AUTHENTICATION ROUTES ---
 
-@app.route('/login')
-def login():
+# CHANGED: Converted Flask @app.route to FastAPI @app.get
+# ADDED: 'request: Request' parameter for session and url_for
+@app.get('/login')
+async def login(request: Request):
     """Initiates the Google OAuth 2.0 login flow, redirecting to Google's consent screen."""
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES, # Use the updated SCOPES list
-        redirect_uri=url_for('callback', _external=True)
+        # CHANGED: 'url_for' is now 'request.url_for' and requires the endpoint 'name'
+        redirect_uri=request.url_for('callback')
     )
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    session['state'] = state
-    return redirect(authorization_url)
+    # CHANGED: 'session' is now 'request.session'
+    request.session['state'] = state
+    # CHANGED: 'redirect' is now 'RedirectResponse'
+    return RedirectResponse(authorization_url)
 
-@app.route('/auth/callback')
-def callback():
+# CHANGED: Converted Flask @app.route to FastAPI @app.get
+# ADDED: 'request: Request' parameter
+# ADDED: 'name="callback"' to allow request.url_for('callback') to work
+@app.get('/auth/callback', name="callback")
+async def callback(request: Request):
     """Handles the callback from Google after a user grants or denies permissions."""
-    if 'state' not in session or session['state'] != request.args.get('state'):
-        return jsonify({"error": "State mismatch. Possible CSRF attack."}), 400
+    
+    # CHANGED: 'session' is now 'request.session'
+    # CHANGED: 'request.args.get' is now 'request.query_params.get'
+    if 'state' not in request.session or request.session['state'] != request.query_params.get('state'):
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(content={"error": "State mismatch. Possible CSRF attack."}, status_code=400)
 
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES, # Use the updated SCOPES list
-        state=session['state'],
-        redirect_uri=url_for('callback', _external=True)
+        state=request.session['state'], # CHANGED: 'session' is now 'request.session'
+        redirect_uri=request.url_for('callback') # CHANGED: 'url_for' is now 'request.url_for'
     )
     try:
-        flow.fetch_token(authorization_response=request.url)
+        # CHANGED: 'request.url' is now a 'URL' object, use 'str(request.url)'
+        flow.fetch_token(authorization_response=str(request.url))
         credentials = flow.credentials
-        session['credentials'] = credentials_to_dict(credentials)
-        session.pop('state', None)
-        return redirect('http://localhost:5173/dashboard')
+        # CHANGED: 'session' is now 'request.session'
+        request.session['credentials'] = credentials_to_dict(credentials)
+        request.session.pop('state', None) # CHANGED: 'session' is now 'request.session'
+        # CHANGED: 'redirect' is now 'RedirectResponse'
+        return RedirectResponse('http://localhost:5173/dashboard')
     except Exception as e:
         print(f"Error fetching token: {e}")
-        session.clear()
-        return jsonify({"error": "Authentication failed."}), 500
+        request.session.clear() # CHANGED: 'session' is now 'request.session'
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(content={"error": "Authentication failed."}, status_code=500)
 
-@app.route('/logout')
-def logout():
-    """Logs the user out by clearing the Flask session."""
-    session.clear()
-    return jsonify({"message": "Successfully logged out"}), 200
+# CHANGED: Converted Flask @app.route to FastAPI @app.get
+# ADDED: 'request: Request' parameter
+@app.get('/logout')
+async def logout(request: Request):
+    """Logs the user out by clearing the session."""
+    # CHANGED: 'session' is now 'request.session'
+    request.session.clear()
+    # CHANGED: 'jsonify' is replaced with returning a dictionary (FastAPI handles it)
+    return {"message": "Successfully logged out"}
+
+
+# --- (Previous code from last snippet) ---
+# ... (imports, helpers, and auth routes) ...
 
 
 # --- 4. API DATA-FETCHING ROUTES ---
 
-@app.route('/api/courses', methods=['GET'])
-def get_courses():
+# CHANGED: Converted Flask route to FastAPI GET endpoint
+# ADDED: 'request: Request' parameter
+@app.get('/api/courses')
+async def get_courses(request: Request):
     """Fetches and returns a list of the teacher's active Google Classroom courses."""
-    classroom_service = get_google_service('classroom', 'v1')
+    # CHANGED: Passed 'request' object to get_google_service
+    classroom_service = get_google_service('classroom', 'v1', request)
     if not classroom_service:
-        return jsonify({"error": "User not authenticated or session expired. Please re-login."}), 401
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": "User not authenticated or session expired. Please re-login."}, 
+            status_code=401
+        )
     
     try:
         courses = classroom_service.courses().list(teacherId='me', courseStates=['ACTIVE']).execute()
-        return jsonify(courses.get('courses', []))
+        # CHANGED: Returned dictionary directly, FastAPI handles 'jsonify'
+        return courses.get('courses', [])
     except HttpError as error:
         print(f"Google Classroom API Error in get_courses: {error.resp.status} - {error.content.decode('utf-8')}")
-        return jsonify({"error": f"Failed to fetch courses: {error.content.decode('utf-8')}"}), error.resp.status
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"Failed to fetch courses: {error.content.decode('utf-8')}"}, 
+            status_code=error.resp.status
+        )
 
-@app.route('/api/courses/<course_id>/assignments', methods=['GET'])
-def get_assignments(course_id):
+# CHANGED: Converted Flask route to FastAPI GET endpoint
+# ADDED: 'request: Request' parameter and type hint for 'course_id'
+@app.get('/api/courses/{course_id}/assignments')
+async def get_assignments(course_id: str, request: Request):
     """Fetches and returns a list of assignments for a given course ID."""
-    classroom_service = get_google_service('classroom', 'v1')
+    # CHANGED: Passed 'request' object to get_google_service
+    classroom_service = get_google_service('classroom', 'v1', request)
     if not classroom_service:
-        return jsonify({"error": "User not authenticated or session expired. Please re-login."}), 401
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": "User not authenticated or session expired. Please re-login."}, 
+            status_code=401
+        )
     try:
         all_coursework = classroom_service.courses().courseWork().list(courseId=course_id).execute()
         assignments_only = [
             item for item in all_coursework.get('courseWork', []) 
             if item.get('workType') == 'ASSIGNMENT'
         ]
-        return jsonify(assignments_only)
+        # CHANGED: Returned list directly, FastAPI handles 'jsonify'
+        return assignments_only
 
     except HttpError as error:
         print(f"Google Classroom API Error in get_assignments for course {course_id}: {error.resp.status} - {error.content.decode('utf-8')}")
-        return jsonify({"error": f"Failed to fetch assignments: {error.content.decode('utf-8')}"}), error.resp.status
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"Failed to fetch assignments: {error.content.decode('utf-8')}"}, 
+            status_code=error.resp.status
+        )
     except Exception as e:
         print(f"An unexpected error occurred in get_assignments: {e}")
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"An unexpected error occurred: {str(e)}"}, 
+            status_code=500
+        )
 
-@app.route('/api/courses/<course_id>/assignments/<assignment_id>/submissions', methods=['GET'])
-def get_submissions(course_id, assignment_id):
+# CHANGED: Converted Flask route to FastAPI GET endpoint
+# ADDED: 'request: Request' parameter and type hints for path parameters
+@app.get('/api/courses/{course_id}/assignments/{assignment_id}/submissions')
+async def get_submissions(course_id: str, assignment_id: str, request: Request):
     """
     Fetches and returns a list of student submissions for a specific assignment.
     Now includes logic to fetch and attach student names to each submission.
     """
-    classroom_service = get_google_service('classroom', 'v1')
+    # CHANGED: Passed 'request' object to get_google_service
+    classroom_service = get_google_service('classroom', 'v1', request)
     if not classroom_service:
-        return jsonify({"error": "User not authenticated or session expired. Please re-login."}), 401
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": "User not authenticated or session expired. Please re-login."}, 
+            status_code=401
+        )
     
     try:
         submissions_response = classroom_service.courses().courseWork().studentSubmissions().list(
@@ -259,19 +352,33 @@ def get_submissions(course_id, assignment_id):
             submission['studentName'] = student_name # Add the name to the submission object
             processed_submissions.append(submission)
 
-        return jsonify(processed_submissions)
+        # CHANGED: Returned list directly, FastAPI handles 'jsonify'
+        return processed_submissions
     except HttpError as error:
         print(f"Google Classroom API Error in get_submissions for course {course_id}, assignment {assignment_id}: {error.resp.status} - {error.content.decode('utf-8')}")
-        return jsonify({"error": f"Failed to fetch submissions: {error.content.decode('utf-8')}"}), error.resp.status
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"Failed to fetch submissions: {error.content.decode('utf-8')}"}, 
+            status_code=error.resp.status
+        )
+
+import uvicorn # ADDED: For running the FastAPI server
+import datetime # ADDED: This import was used in the grading logic
+
+# --- (Previous code from last snippet) ---
+# ... (imports, helpers, auth routes, and data-fetching routes) ...
 
 
-# --- 5. CORE GRADING ROUTE (NO CHANGES HERE) ---
+# --- 5. CORE GRADING ROUTE ---
 
-@app.route('/api/grade', methods=['POST'])
-def grade_submission():
+# CHANGED: Converted Flask route to FastAPI POST endpoint
+# ADDED: 'request: Request' parameter
+@app.post('/api/grade')
+async def grade_submission(request: Request):
     global graded_assignments_history 
 
-    data = request.json
+    # CHANGED: 'request.json' is now 'await request.json()'
+    data = await request.json()
     course_id = data.get('course_id')
     course_name = data.get('course_name') 
     assignment_id = data.get('assignment_id')
@@ -281,18 +388,31 @@ def grade_submission():
     answer_key_url = data.get('answer_key_url')
 
     if not all([course_id, assignment_id, submission_id, answer_key_url, course_name, assignment_title, student_name]):
-        return jsonify({"error": "Missing required data: course_id, course_name, assignment_id, assignment_title, submission_id, student_name, or answer_key_url."}), 400
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": "Missing required data: course_id, course_name, assignment_id, assignment_title, submission_id, student_name, or answer_key_url."},
+            status_code=400
+        )
 
-    classroom_service = get_google_service('classroom', 'v1')
-    drive_service = get_google_service('drive', 'v3')
+    # CHANGED: Passed 'request' object to get_google_service
+    classroom_service = get_google_service('classroom', 'v1', request)
+    drive_service = get_google_service('drive', 'v3', request)
 
     if not classroom_service or not drive_service:
-        return jsonify({"error": "User not authenticated or missing Drive/Classroom permissions. Please re-login."}), 401
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": "User not authenticated or missing Drive/Classroom permissions. Please re-login."},
+            status_code=401
+        )
     
     try:
         answer_key_file_id = extract_drive_file_id_from_url(answer_key_url)
         if not answer_key_file_id:
-            return jsonify({"error": "Invalid Google Drive URL provided for the Answer Key. Please check the URL."}), 400
+            # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+            return JSONResponse(
+                content={"error": "Invalid Google Drive URL provided for the Answer Key. Please check the URL."},
+                status_code=400
+            )
 
         assignment_details = classroom_service.courses().courseWork().get(courseId=course_id, id=assignment_id).execute()
         materials = assignment_details.get('materials', [])
@@ -305,29 +425,44 @@ def grade_submission():
                 break 
         
         if not questionnaire_file_id:
-            return jsonify({"error": "No Google Drive document (questionnaire) found attached to this assignment."}), 404
+            # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+            return JSONResponse(
+                content={"error": "No Google Drive document (questionnaire) found attached to this assignment."},
+                status_code=404
+            )
 
         submission_details = classroom_service.courses().courseWork().studentSubmissions().get(
             courseId=course_id, courseWorkId=assignment_id, id=submission_id).execute()
         
         attachments = submission_details.get('assignmentSubmission', {}).get('attachments', [])
         if not attachments:
-            return jsonify({"error": "This student has not attached any file to their submission."}), 404
+            # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+            return JSONResponse(
+                content={"error": "This student has not attached any file to their submission."},
+                status_code=404
+            )
         
         student_submission_file_id = attachments[0]['driveFile']['id']
         print(f"Identified student submission file ID: {student_submission_file_id}.")
 
 
         print("Initiating document downloads...")
+        # NOTE: download_drive_file_content is synchronous.
+        # For a fully async app, these should be run in a thread pool,
+        # but leaving as-is for direct conversion.
         questionnaire_text = download_drive_file_content(drive_service, questionnaire_file_id, "Questionnaire")
         answer_key_text = download_drive_file_content(drive_service, answer_key_file_id, "Answer Key")
         student_submission_text = download_drive_file_content(drive_service, student_submission_file_id, "Student Submission")
 
         if not all([questionnaire_text, answer_key_text, student_submission_text]):
-            return jsonify({"error": "Failed to download text content from one or more required documents. Check file permissions or existence."}), 500
+            # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+            return JSONResponse(
+                content={"error": "Failed to download text content from one or more required documents. Check file permissions or existence."},
+                status_code=500
+            )
         
         print("Documents downloaded. Constructing Gemini prompt and calling AI...")
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash") 
+        model = genai.GenerativeModel(model_name="gemini-2.5-flash") # Using 1.5 Flash as a modern equivalent
         
         prompt = f"""
         You are an expert AI teaching assistant for a Google Classroom assignment titled "{assignment_details.get('title', 'Unknown Assignment')}". Your task is to rigorously grade the student's submission, providing a score out of 100, and comprehensive feedback.
@@ -362,7 +497,8 @@ def grade_submission():
         FEEDBACK: [Your detailed feedback paragraph here, covering all points from instruction 6]
         """
         
-        response = model.generate_content(prompt)
+        # CHANGED: Switched to the async version of the call
+        response = await model.generate_content_async(prompt)
         
         print("Gemini response received. Parsing...")
         grade_text_output = response.text
@@ -373,13 +509,17 @@ def grade_submission():
 
         if not grade_match or not feedback_match or not justification_match:
             print(f"Gemini response was not in the expected format. Raw response:\n{grade_text_output}")
-            return jsonify({"error": "Failed to parse grade, justification, or feedback from AI response. Please ensure Gemini's output adheres to the specified format."}), 500
+            # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+            return JSONResponse(
+                content={"error": "Failed to parse grade, justification, or feedback from AI response. Please ensure Gemini's output adheres to the specified format."},
+                status_code=500
+            )
             
         final_grade = int(grade_match.group(1))
         grade_justification = justification_match.group(1).strip()
         feedback_str = feedback_match.group(1).strip()
         
-        import datetime
+        # import datetime # This was here, moved to top
         graded_item = {
             "course_id": course_id,
             "course_name": course_name,
@@ -395,32 +535,50 @@ def grade_submission():
         graded_assignments_history.append(graded_item)
 
         print(f"AI Grade: {final_grade}/100. Providing review for dashboard display only (no Classroom update).")
-        return jsonify({
+        # CHANGED: 'jsonify' is replaced with returning a dictionary
+        return {
             "message": "AI grading complete. Review provided for dashboard display only.",
             "assignedGrade": final_grade,
             "feedback": feedback_str,
             "grade_justification": grade_justification,
             "status": "review_only", 
             "graded_history": graded_assignments_history 
-        })
+        }
 
 
     except HttpError as error:
         error_details = error.content.decode('utf-8')
         print(f"Google API Error in grading: {error.resp.status} - {error_details}")
-        return jsonify({"error": f"Google API Error: {error_details}"}), error.resp.status
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"Google API Error: {error_details}"},
+            status_code=error.resp.status
+        )
     except Exception as e:
         print(f"An unexpected error occurred during grading: {e}")
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+        # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        return JSONResponse(
+            content={"error": f"An unexpected error occurred: {str(e)}"},
+            status_code=500
+        )
 
 # --- New route to fetch the entire grading history ---
-@app.route('/api/graded_history', methods=['GET'])
-def get_graded_history():
+
+# CHANGED: Converted Flask route to FastAPI GET endpoint
+@app.get('/api/graded_history')
+async def get_graded_history():
     """Returns the list of all assignments graded in the current session."""
-    return jsonify(graded_assignments_history)
+    # CHANGED: 'jsonify' is replaced with returning the list directly
+    return graded_assignments_history
 
 
 # --- 6. MAIN APPLICATION RUNNER ---
 
+# CHANGED: Replaced Flask's 'app.run' with 'uvicorn.run'
 if __name__ == '__main__':
-    app.run(port=8000, debug=True)
+    # Flask's 'debug=True' is similar to 'reload=True' in uvicorn,
+    # but 'reload=True' must be run from the command line.
+    # This is the direct equivalent of 'app.run(port=8000)'
+    # To run with reload (like Flask debug): uvicorn main:app --port 8000 --reload
+    # (Assuming your file is named 'main.py')
+    uvicorn.run(app, host="127.0.0.1", port=8000)

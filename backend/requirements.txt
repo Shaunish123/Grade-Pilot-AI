@@ -1,7 +1,24 @@
 Flask==2.3.3
 Flask-Cors==3.0.10
-python-dotenv==1.0.0
-google-generativeai==0.3.1 # Or the latest stable version
-google-api-python-client==2.113.0 # Or the latest stable version
-google-auth-oauthlib==1.2.0 # Or the latest stable version
-google-auth==2.26.2 # Explicitly adding google-auth as a core dependency
+# python-dotenv==1.0.0
+# google-generativeai==0.3.1 # Or the latest stable version
+# google-api-python-client==2.113.0 # Or the latest stable version
+# google-auth-oauthlib==1.2.0 # Or the latest stable version
+# google-auth==2.26.2 # Explicitly adding google-auth as a core dependency
+
+# Core web framework (Replaces Flask)
+fastapi
+
+# ASGI server to run FastAPI (Replaces Flask's built-in server)
+uvicorn[standard]
+
+# For loading .env files
+python-dotenv
+
+# For Google Gemini AI
+google-generativeai
+
+# For Google Classroom/Drive APIs
+google-api-python-client
+google-auth-oauthlib
+google-auth
