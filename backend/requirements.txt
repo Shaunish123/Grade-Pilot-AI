@@ -22,3 +22,6 @@ google-generativeai
 google-api-python-client
 google-auth-oauthlib
 google-auth
+
+# ADD THIS FOR HANDWRITING RECOGNITION
+google-cloud-vision

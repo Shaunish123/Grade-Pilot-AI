@@ -45,5 +45,5 @@ client_secret.json
 # Logs
 *.log
 
-# Service account keys
-backend/service-account-key.json
+#google cloud vision service account key
+service-account-key.json

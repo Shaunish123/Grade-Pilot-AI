@@ -19,9 +19,17 @@ from google_auth_oauthlib.flow import Flow
 import uvicorn # ADDED: For running the FastAPI server
 import datetime # ADDED: This import was used in the grading logic
 
+from google.cloud import vision # ADDED: Google Vision API client 
+
 # --- 1. INITIAL CONFIGURATION ---
 load_dotenv()
+
+# --- 2. ADD VISION API AUTHENTICATION ---
+# This tells the script to use your JSON key file.
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "service-account-key.json"
+
 app = FastAPI() # CHANGED: Initialized FastAPI
+
 
 # ADDED: SessionMiddleware for session support, equivalent to Flask's app.secret_key
 # Note: Using os.urandom() means sessions will be invalidated on every server restart.
@@ -132,38 +140,84 @@ def extract_drive_file_id_from_url(url):
         return match.group(1)
     return None
 
-# --- (Previous code from last snippet) ---
-# ... (imports and helper functions) ...
 
 def download_drive_file_content(drive_service, file_id, file_name="unknown"):
     """
     Downloads a Google Drive file's content as plain text.
-    Handles native Google Workspace files (Docs, Sheets, Slides) by exporting to text/plain.
-    Handles other text-based files (e.g., .txt, .docx, .pdf) by downloading raw content.
+    
+    - If it's a Google Doc/Sheet, it exports as text/plain.
+    - If it's an Image (JPG, PNG) or PDF, it downloads the bytes 
+      and uses the Google Cloud Vision API to extract handwritten text.
+    - Otherwise, it attempts a standard text download.
     """
-    # NO CHANGE: This function is framework-independent.
     try:
         file_metadata = drive_service.files().get(fileId=file_id, fields='mimeType, name').execute()
         mime_type = file_metadata.get('mimeType')
         actual_file_name = file_metadata.get('name', file_name)
-        print(f"Attempting to download '{actual_file_name}' (ID: {file_id}) with MIME type: {mime_type}")
+        print(f"Downloading '{actual_file_name}' (ID: {file_id}) with MIME type: {mime_type}")
 
+        # --- BRANCH 1: Google Workspace Docs (Same as before) ---
         if mime_type.startswith('application/vnd.google-apps'):
+            print("File is a Google Doc. Exporting as text/plain.")
             request = drive_service.files().export_media(fileId=file_id, mimeType='text/plain')
-        else:
-            request = drive_service.files().get_media(fileId=file_id)
-        
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        
-        try:
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
             return fh.getvalue().decode('utf-8')
-        except UnicodeDecodeError:
-            print(f"UTF-8 decode failed for '{actual_file_name}', trying latin-1.")
-            return fh.getvalue().decode('latin-1')
+
+        # --- BRANCH 2: Images or PDFs (NEW LOGIC) ---
+        elif mime_type in ['image/jpeg', 'image/png', 'application/pdf']:
+            print("File is an Image/PDF. Downloading bytes for Cloud Vision API...")
+            request = drive_service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            
+            content_bytes = fh.getvalue()
+            
+            print("Bytes downloaded. Sending to Cloud Vision API for handwriting detection...")
+            
+            # --- This is the logic from your detect.py ---
+            client = vision.ImageAnnotatorClient()
+            image = vision.Image(content=content_bytes)
+            image_context = vision.ImageContext(language_hints=["en-t-i0-handwrit"])
+            
+            response = client.document_text_detection(
+                image=image,
+                image_context=image_context
+            )
+            
+            if response.error.message:
+                print(f"Cloud Vision API Error: {response.error.message}")
+                return None
+            
+            if response.full_text_annotation:
+                print("Cloud Vision API successful. Returning extracted text.")
+                print(f"--- OCR TEXT FROM {actual_file_name} ---\n{response.full_text_annotation.text}\n---------------------------------")
+                return response.full_text_annotation.text
+            else:
+                print("Cloud Vision API found no text in the image.")
+                return "" # Return empty string if no text is found
+
+        # --- BRANCH 3: Other files (e.g., .txt) (Same as before) ---
+        else:
+            print("File is not a Google Doc or Image. Attempting direct media download.")
+            request = drive_service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+
+            try:
+                return fh.getvalue().decode('utf-8')
+            except UnicodeDecodeError:
+                print(f"UTF-8 decode failed for '{actual_file_name}', trying latin-1.")
+                return fh.getvalue().decode('latin-1')
 
     except HttpError as error:
         print(f'Google Drive API Error downloading file "{actual_file_name}" (ID: {file_id}): {error.resp.status} - {error.content.decode("utf-8")}')
@@ -171,7 +225,6 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
     except Exception as e:
         print(f'Unexpected error in download_drive_file_content for "{actual_file_name}" (ID: {file_id}): {e}')
         return None
-
 
 # --- 3. AUTHENTICATION ROUTES ---
 
@@ -478,19 +531,31 @@ async def grade_submission(request: Request):
 
         --- GRADING INSTRUCTIONS ---
         1.  **Understanding the Task:** Carefully read the QUESTIONNAIRE to grasp the specific requirements and learning objectives.
+
         2.  **Content Accuracy & Completeness:** Compare the STUDENT'S SUBMISSION against the OFFICIAL ANSWER KEY.
             * How accurately does the student address each question/task?
             * Is the information presented correct?
             * Are all parts of the question/task attempted and completed?
             * **Award points for partially correct or reasonable attempts. Avoid giving a 0 unless the submission is entirely blank, off-topic, or completely nonsensical.** Even minimal effort to address the prompt should receive some credit.
+
         3.  **Structure & Clarity:** Evaluate the organization, clarity, and readability of the student's response.
+
         4.  **Meaning & Comprehension:** Assess the student's understanding of the concepts. Does their submission demonstrate comprehension, or is it just rote memorization/copying?
-        5.  **Assign a Numerical Grade (0-100):** Based on the above criteria, assign a numerical grade.
+
+        5.  **Assign a Numerical Grade (0-100):** Based on the above criteria, assign a numerical grade, using the following guidelines to achieve scores between 70-80 for conceptually correct but less precise answers:
+            * **90-100 (Excellent):** Answers are accurate, complete, well-structured, and demonstrate deep comprehension. Critically, they are also *precise* and leverage key terminology from the answer key where appropriate.
+            * **75-89 (Good/Strong):** Answers are *conceptually correct* and show good understanding, but might lack the highest level of precision or miss some specific key terminology from the answer key. They are clear, mostly complete, but could be more refined.
+            * **50-74 (Fair/Developing):** Answers are partially correct, contain some inaccuracies, or are vague. They may demonstrate some understanding but require significant improvement in content, clarity, or completeness.
+            * **< 50 (Limited/Poor):** Answers are largely incorrect, off-topic, or show minimal understanding. This category should only be used if attempts are very weak or absent.
+
         6.  **Provide Comprehensive Feedback:**
             * Start with positive aspects or areas where the student demonstrated understanding.
             * Clearly explain where points were lost, referencing specific parts of the questionnaire or answer key.
+            * For "Good/Strong" answers, specifically suggest how they could make their explanation more precise or complete by integrating relevant key terms or more detailed examples.
             * Suggest concrete steps for improvement.
-        7.  **Justify the Grade (Briefly):** Include a short sentence explaining the overall reasoning for the assigned score.
+
+        7.  **Justify the Grade (Briefly):** Include a short sentence explaining the overall reasoning for the assigned score, linking it to the guidelines above (e.g., "Conceptually solid but lacked some precision and specific terminology for full marks.")
+
         8.  **Format your response STRICTLY as follows, with no extra text before or after, ensuring clear separation for parsing:
         GRADE: [SCORE]/100
         GRADE_JUSTIFICATION: [A brief, one-sentence reason for the score]
