@@ -74,6 +74,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Run the Uvicorn server
 python -m uvicorn app:app --reload --port 8000
 
+```
+
 > ℹ️ Your backend API will now be running at `http://localhost:8000`
 
 #### **Terminal 2: Start the Frontend Server**
@@ -82,5 +84,7 @@ python -m uvicorn app:app --reload --port 8000
 cd frontend
 # Run the development server
 npm run dev
+
+```
 
 > ℹ️ Your frontend will now be running at http://localhost:3000 (or 5173, etc. — check your terminal for the exact URL).
