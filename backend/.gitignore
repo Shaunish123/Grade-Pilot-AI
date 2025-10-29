@@ -44,3 +44,6 @@ client_secret.json
 
 # Logs
 *.log
+
+#googgle cloud vision service account key
+service-account-key.json
