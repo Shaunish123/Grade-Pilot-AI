@@ -197,6 +197,7 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
             
             if response.full_text_annotation:
                 print("Cloud Vision API successful. Returning extracted text.")
+                print(f"--- OCR TEXT FROM {actual_file_name} ---\n{response.full_text_annotation.text}\n---------------------------------")
                 return response.full_text_annotation.text
             else:
                 print("Cloud Vision API found no text in the image.")
@@ -530,19 +531,31 @@ async def grade_submission(request: Request):
 
         --- GRADING INSTRUCTIONS ---
         1.  **Understanding the Task:** Carefully read the QUESTIONNAIRE to grasp the specific requirements and learning objectives.
+
         2.  **Content Accuracy & Completeness:** Compare the STUDENT'S SUBMISSION against the OFFICIAL ANSWER KEY.
             * How accurately does the student address each question/task?
             * Is the information presented correct?
             * Are all parts of the question/task attempted and completed?
             * **Award points for partially correct or reasonable attempts. Avoid giving a 0 unless the submission is entirely blank, off-topic, or completely nonsensical.** Even minimal effort to address the prompt should receive some credit.
+
         3.  **Structure & Clarity:** Evaluate the organization, clarity, and readability of the student's response.
+
         4.  **Meaning & Comprehension:** Assess the student's understanding of the concepts. Does their submission demonstrate comprehension, or is it just rote memorization/copying?
-        5.  **Assign a Numerical Grade (0-100):** Based on the above criteria, assign a numerical grade.
+
+        5.  **Assign a Numerical Grade (0-100):** Based on the above criteria, assign a numerical grade, using the following guidelines to achieve scores between 70-80 for conceptually correct but less precise answers:
+            * **90-100 (Excellent):** Answers are accurate, complete, well-structured, and demonstrate deep comprehension. Critically, they are also *precise* and leverage key terminology from the answer key where appropriate.
+            * **75-89 (Good/Strong):** Answers are *conceptually correct* and show good understanding, but might lack the highest level of precision or miss some specific key terminology from the answer key. They are clear, mostly complete, but could be more refined.
+            * **50-74 (Fair/Developing):** Answers are partially correct, contain some inaccuracies, or are vague. They may demonstrate some understanding but require significant improvement in content, clarity, or completeness.
+            * **< 50 (Limited/Poor):** Answers are largely incorrect, off-topic, or show minimal understanding. This category should only be used if attempts are very weak or absent.
+
         6.  **Provide Comprehensive Feedback:**
             * Start with positive aspects or areas where the student demonstrated understanding.
             * Clearly explain where points were lost, referencing specific parts of the questionnaire or answer key.
+            * For "Good/Strong" answers, specifically suggest how they could make their explanation more precise or complete by integrating relevant key terms or more detailed examples.
             * Suggest concrete steps for improvement.
-        7.  **Justify the Grade (Briefly):** Include a short sentence explaining the overall reasoning for the assigned score.
+
+        7.  **Justify the Grade (Briefly):** Include a short sentence explaining the overall reasoning for the assigned score, linking it to the guidelines above (e.g., "Conceptually solid but lacked some precision and specific terminology for full marks.")
+
         8.  **Format your response STRICTLY as follows, with no extra text before or after, ensuring clear separation for parsing:
         GRADE: [SCORE]/100
         GRADE_JUSTIFICATION: [A brief, one-sentence reason for the score]
