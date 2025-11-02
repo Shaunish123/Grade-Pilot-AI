@@ -51,6 +51,7 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
         answer_key_url: answerKeyUrl
       });
       
+      // Store the grading results
       setGradingResults(prev => ({
         ...prev,
         [submissionId]: {
@@ -95,6 +96,7 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
 
     try {
       for (const submission of submissions) {
+        // Skip already graded submissions
         if (gradingResults[submission.id]?.status !== 'complete') {
           await gradeSubmission(submission.id, submission.studentName);
         }
@@ -104,39 +106,25 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
     }
   };
 
+  const handleBackClick = () => {
+    navigate(`/course/${courseId}/assignments`);
+  };
+
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '400px'
-      }}>
-        <div className="loading-spinner"></div>
+      <div className="flex justify-center items-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '1rem',
-        padding: '2rem'
-      }}>
-        <p style={{ color: 'var(--error)' }}>{error}</p>
+      <div className="text-center p-4">
+        <div className="text-red-500 mb-4">{error}</div>
         <button
           onClick={() => window.location.reload()}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: 'var(--primary)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer'
-          }}
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         >
           Retry
         </button>
@@ -255,7 +243,7 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
                 borderRadius: '12px',
                 padding: '1.5rem',
                 border: '1px solid var(--border)',
-                borderLeft: `4px solid ${gradingResult?.status === 'complete' ? 'var(--success)' : 'var(--border)'}`,
+                borderLeft: `4px solid ${gradingResult?.status === 'complete' ? 'var(--success)' : 'var(--border)}`,
                 transition: 'all 0.2s ease'
               }}
             >
@@ -277,15 +265,8 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
                       href={submission.assignmentSubmission.attachments[0].driveFile.alternateLink} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      style={{ 
-                        display: 'inline-block',
-                        marginTop: '0.5rem',
-                        padding: '0.5rem 1rem',
-                        backgroundColor: 'var(--surface-hover)',
-                        color: 'var(--primary-text)',
-                        borderRadius: '4px',
-                        textDecoration: 'none'
-                      }}
+                      className="btn"
+                      style={{ display: 'inline-block', marginTop: '0.5rem' }}
                     >
                       View Submission
                     </a>
@@ -293,11 +274,10 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
                   
                   {/* Grading Results Section */}
                   {gradingResult && (
-                    <div style={{ 
+                    <div className="card" style={{ 
                       marginTop: '1rem',
-                      padding: '1rem',
                       backgroundColor: 'var(--surface-hover)',
-                      borderRadius: '8px'
+                      border: 'none'
                     }}>
                       {gradingResult.status === 'complete' ? (
                         <>
@@ -332,18 +312,17 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
                 <div>
                   <button
                     onClick={() => handleGrade(submission.id, submission.studentName)}
-                    disabled={isGrading || batchGrading || !answerKeyUrl || gradingResult?.status === 'complete'}
+                    disabled={isGrading || batchGrading || !answerKeyUrl}
                     style={{
                       padding: '0.75rem 1.5rem',
                       fontSize: '1rem',
-                      backgroundColor: isGrading ? 'var(--surface)' : 
-                                   gradingResult?.status === 'complete' ? 'var(--success)' : 'var(--primary)',
+                      backgroundColor: isGrading ? 'var(--surface)' : 'var(--primary)',
                       color: '#fff',
                       border: 'none',
                       borderRadius: '6px',
-                      cursor: (isGrading || !answerKeyUrl || gradingResult?.status === 'complete') ? 'not-allowed' : 'pointer',
+                      cursor: isGrading ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s ease',
-                      opacity: (isGrading || !answerKeyUrl || gradingResult?.status === 'complete') ? '0.7' : '1',
+                      opacity: isGrading ? '0.7' : '1',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '0.5rem'
@@ -351,11 +330,9 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
                   >
                     {isGrading ? (
                       <>
-                        <div className="loading-spinner-small"></div>
-                        <span>Grading...</span>
+                        <div className="loading-spinner-small" />
+                        Grading...
                       </>
-                    ) : gradingResult?.status === 'complete' ? (
-                      'Graded'
                     ) : (
                       'Grade Submission'
                     )}
@@ -378,6 +355,16 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
             No submissions available for this assignment.
           </div>
         )}
+      </div>
+    </div>
+  );
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
