@@ -4,7 +4,7 @@ import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import AssignmentsPage from './pages/AssignmentsPage';
 import SubmissionsPage from './pages/SubmissionsPage';
-import { useEffect } from 'react';
+import ThemeToggle from './components/ThemeToggle';
 import axios from 'axios';
 
 // Axios instance for handling cookies (sessions)
@@ -16,6 +16,7 @@ const API = axios.create({
 function App() {
   return (
     <Router>
+      <ThemeToggle />
       <Routes>
         <Route path="/" element={<LoginPage />} />
         <Route path="/home" element={<HomePage API={API} />} />

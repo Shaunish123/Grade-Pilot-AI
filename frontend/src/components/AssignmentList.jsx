@@ -2,21 +2,41 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API } from '../App';
 
-// Define card colors for variety
+// Define card colors for variety - work well in both dark and light modes
 const cardColors = [
-  { bg: '#2C3E50', hover: '#34495E' }, // Dark Blue
-  { bg: '#8E44AD', hover: '#9B59B6' }, // Purple
-  { bg: '#2980B9', hover: '#3498DB' }, // Blue
-  { bg: '#16A085', hover: '#1ABC9C' }, // Turquoise
-  { bg: '#27AE60', hover: '#2ECC71' }, // Green
-  { bg: '#D35400', hover: '#E67E22' }  // Orange
+  { bg: '#2C3E50', hover: '#34495E', light: '#3498DB', lightHover: '#2980B9' }, // Blue
+  { bg: '#8E44AD', hover: '#9B59B6', light: '#9B59B6', lightHover: '#8E44AD' }, // Purple
+  { bg: '#2980B9', hover: '#3498DB', light: '#3498DB', lightHover: '#2980B9' }, // Light Blue
+  { bg: '#16A085', hover: '#1ABC9C', light: '#1ABC9C', lightHover: '#16A085' }, // Turquoise
+  { bg: '#27AE60', hover: '#2ECC71', light: '#2ECC71', lightHover: '#27AE60' }, // Green
+  { bg: '#D35400', hover: '#E67E22', light: '#E67E22', lightHover: '#D35400' }  // Orange
 ];
 
 function AssignmentList({ courseId }) {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [theme, setTheme] = useState('dark');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Detect theme
+    const detectTheme = () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      setTheme(currentTheme);
+    };
+    
+    detectTheme();
+    
+    // Listen for theme changes
+    const observer = new MutationObserver(detectTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const fetchAssignments = async () => {
@@ -116,30 +136,39 @@ function AssignmentList({ courseId }) {
         {assignments.map((assignment, index) => {
           const colorIndex = index % cardColors.length;
           const color = cardColors[colorIndex];
+          const isLightMode = theme === 'light';
+          const bgColor = isLightMode ? color.light : color.bg;
+          const hoverColor = isLightMode ? color.lightHover : color.hover;
           
           return (
             <div
               key={assignment.id}
               onClick={() => handleAssignmentClick(assignment.id)}
               style={{
-                backgroundColor: color.bg,
+                backgroundColor: bgColor,
                 borderRadius: '12px',
                 padding: '2rem',
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 transform: 'translateY(0)',
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                boxShadow: isLightMode 
+                  ? '0 4px 12px rgba(0, 0, 0, 0.1)' 
+                  : '0 4px 6px rgba(0, 0, 0, 0.1)',
                 color: '#fff'
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.backgroundColor = color.hover;
+                e.currentTarget.style.backgroundColor = hoverColor;
                 e.currentTarget.style.transform = 'translateY(-5px)';
-                e.currentTarget.style.boxShadow = '0 8px 12px rgba(0, 0, 0, 0.15)';
+                e.currentTarget.style.boxShadow = isLightMode
+                  ? '0 8px 20px rgba(0, 0, 0, 0.15)'
+                  : '0 8px 12px rgba(0, 0, 0, 0.15)';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.backgroundColor = color.bg;
+                e.currentTarget.style.backgroundColor = bgColor;
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+                e.currentTarget.style.boxShadow = isLightMode
+                  ? '0 4px 12px rgba(0, 0, 0, 0.1)'
+                  : '0 4px 6px rgba(0, 0, 0, 0.1)';
               }}
             >
               <h2 style={{
