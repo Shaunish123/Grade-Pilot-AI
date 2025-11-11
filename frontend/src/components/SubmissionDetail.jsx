@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { API } from '../App';
 
-function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle }) {
+function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle, generatedAnswerKey }) {
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [gradingSubmissions, setGradingSubmissions] = useState(new Set());
   const [answerKeyUrl, setAnswerKeyUrl] = useState('');
+  const [answerKeyText, setAnswerKeyText] = useState(generatedAnswerKey || '');
   const [gradingResults, setGradingResults] = useState({});
   const [batchGrading, setBatchGrading] = useState(false);
-  const navigate = useNavigate();
+  const [useTextKey, setUseTextKey] = useState(!!generatedAnswerKey); // true if we have a generated key
+  const [exportingToSheet, setExportingToSheet] = useState(false);
+  const [exportedSheetUrl, setExportedSheetUrl] = useState(null);
 
   useEffect(() => {
     const fetchSubmissions = async () => {
@@ -31,25 +33,48 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
 
     fetchSubmissions();
   }, [courseId, assignmentId]);
+  
+  // Update answer key text when generatedAnswerKey prop changes
+  useEffect(() => {
+    if (generatedAnswerKey) {
+      setAnswerKeyText(generatedAnswerKey);
+      setUseTextKey(true);
+    }
+  }, [generatedAnswerKey]);
 
   const gradeSubmission = async (submissionId, studentName) => {
     try {
-      if (!answerKeyUrl) {
+      // Check if we have either URL or text
+      if (!useTextKey && !answerKeyUrl) {
         alert("Please provide an Answer Key URL.");
+        return false;
+      }
+      
+      if (useTextKey && !answerKeyText) {
+        alert("Answer key text is missing.");
         return false;
       }
 
       setGradingSubmissions(prev => new Set(prev).add(submissionId));
       
-      const response = await API.post('/api/grade', {
+      // Prepare payload based on what we have
+      const payload = {
         course_id: courseId,
         course_name: courseName,
         assignment_id: assignmentId,
         assignment_title: assignmentTitle,
         submission_id: submissionId,
-        student_name: studentName,
-        answer_key_url: answerKeyUrl
-      });
+        student_name: studentName
+      };
+      
+      // Add either answer_key_text or answer_key_url
+      if (useTextKey) {
+        payload.answer_key_text = answerKeyText;
+      } else {
+        payload.answer_key_url = answerKeyUrl;
+      }
+      
+      const response = await API.post('/api/grade', payload);
       
       setGradingResults(prev => ({
         ...prev,
@@ -86,8 +111,14 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
   };
 
   const handleGradeAll = async () => {
-    if (!answerKeyUrl) {
+    // Check if we have either URL or text
+    if (!useTextKey && !answerKeyUrl) {
       alert("Please provide an Answer Key URL.");
+      return;
+    }
+    
+    if (useTextKey && !answerKeyText) {
+      alert("Answer key text is missing.");
       return;
     }
 
@@ -101,6 +132,44 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
       }
     } finally {
       setBatchGrading(false);
+    }
+  };
+
+  const handleExportToSheet = async () => {
+    // Check if there are any graded submissions
+    const gradedSubmissions = Object.entries(gradingResults)
+      .filter(([, result]) => result.status === 'complete')
+      .map(([submissionId, result]) => {
+        const submission = submissions.find(s => s.id === submissionId);
+        return {
+          student_name: submission?.studentName || 'Unknown Student',
+          assignedGrade: result.assignedGrade,
+          feedback: result.feedback
+        };
+      });
+
+    if (gradedSubmissions.length === 0) {
+      alert("No graded submissions to export. Please grade some submissions first.");
+      return;
+    }
+
+    setExportingToSheet(true);
+    setExportedSheetUrl(null);
+
+    try {
+      const response = await API.post('/api/export-grades-to-sheet', {
+        course_name: courseName,
+        assignment_title: assignmentTitle,
+        graded_submissions: gradedSubmissions
+      });
+
+      setExportedSheetUrl(response.data.spreadsheet_url);
+      alert(`Successfully exported ${response.data.student_count} graded submissions to Google Sheets!`);
+    } catch (error) {
+      console.error('Error exporting to sheet:', error);
+      alert(error.response?.data?.error || 'Failed to export grades to Google Sheets. Please try again.');
+    } finally {
+      setExportingToSheet(false);
     }
   };
 
@@ -168,30 +237,91 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
             Grade Control Panel
           </h3>
           <div style={{ marginBottom: '2rem' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '0.9rem',
-              color: 'var(--secondary-text)',
-              marginBottom: '0.75rem'
-            }}>
-              Answer Key URL:
-            </label>
-            <input
-              type="text"
-              value={answerKeyUrl}
-              onChange={(e) => setAnswerKeyUrl(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                fontSize: '1rem',
-                backgroundColor: 'var(--background)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                color: 'var(--primary-text)',
-                transition: 'all 0.2s ease'
-              }}
-              placeholder="Paste Google Drive URL"
-            />
+            {useTextKey ? (
+              <>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.9rem',
+                  color: 'var(--secondary-text)',
+                  marginBottom: '0.75rem'
+                }}>
+                  AI-Generated Answer Key:
+                </label>
+                <textarea
+                  value={answerKeyText}
+                  onChange={(e) => setAnswerKeyText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    minHeight: '200px',
+                    padding: '0.75rem',
+                    fontSize: '0.95rem',
+                    backgroundColor: 'var(--background)',
+                    border: '2px solid var(--success)',
+                    borderRadius: '6px',
+                    color: 'var(--primary-text)',
+                    fontFamily: 'monospace',
+                    resize: 'vertical',
+                    lineHeight: '1.6'
+                  }}
+                  placeholder="AI-generated answer key"
+                />
+                <p style={{
+                  fontSize: '0.85rem',
+                  color: 'var(--success)',
+                  marginTop: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  ✓ Using AI-generated answer key for grading
+                </p>
+                <button
+                  onClick={() => {
+                    setUseTextKey(false);
+                    setAnswerKeyText('');
+                  }}
+                  style={{
+                    marginTop: '0.75rem',
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.9rem',
+                    backgroundColor: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    color: 'var(--secondary-text)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Switch to URL Input
+                </button>
+              </>
+            ) : (
+              <>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.9rem',
+                  color: 'var(--secondary-text)',
+                  marginBottom: '0.75rem'
+                }}>
+                  Answer Key URL:
+                </label>
+                <input
+                  type="text"
+                  value={answerKeyUrl}
+                  onChange={(e) => setAnswerKeyUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    fontSize: '1rem',
+                    backgroundColor: 'var(--background)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    color: 'var(--primary-text)',
+                    transition: 'all 0.2s ease'
+                  }}
+                  placeholder="Paste Google Drive URL"
+                />
+              </>
+            )}
           </div>
 
           {batchGrading && (
@@ -207,22 +337,103 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle 
 
           <button
             onClick={handleGradeAll}
-            disabled={batchGrading || gradingSubmissions.size > 0 || !answerKeyUrl}
+            disabled={batchGrading || gradingSubmissions.size > 0 || (!useTextKey && !answerKeyUrl) || (useTextKey && !answerKeyText)}
             style={{
               width: '100%',
               padding: '0.75rem',
               fontSize: '1rem',
-              backgroundColor: answerKeyUrl ? 'var(--success)' : 'var(--surface)',
-              color: answerKeyUrl ? '#fff' : 'var(--primary-text)',
-              border: `1px solid ${answerKeyUrl ? 'var(--success)' : 'var(--border)'}`,
+              backgroundColor: (useTextKey ? answerKeyText : answerKeyUrl) ? 'var(--success)' : 'var(--surface)',
+              color: (useTextKey ? answerKeyText : answerKeyUrl) ? '#fff' : 'var(--primary-text)',
+              border: `1px solid ${(useTextKey ? answerKeyText : answerKeyUrl) ? 'var(--success)' : 'var(--border)'}`,
               borderRadius: '6px',
-              cursor: answerKeyUrl ? 'pointer' : 'not-allowed',
+              cursor: (useTextKey ? answerKeyText : answerKeyUrl) ? 'pointer' : 'not-allowed',
               transition: 'all 0.2s ease',
-              opacity: (batchGrading || gradingSubmissions.size > 0) ? '0.7' : '1'
+              opacity: (batchGrading || gradingSubmissions.size > 0) ? '0.7' : '1',
+              marginBottom: '1rem'
             }}
           >
             {batchGrading ? 'Grading All...' : 'Grade All Submissions'}
           </button>
+
+          {/* Export to Google Sheets Button */}
+          <button
+            onClick={handleExportToSheet}
+            disabled={exportingToSheet || Object.values(gradingResults).filter(r => r.status === 'complete').length === 0}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              backgroundColor: Object.values(gradingResults).filter(r => r.status === 'complete').length > 0 ? '#10a37f' : 'var(--surface)',
+              color: Object.values(gradingResults).filter(r => r.status === 'complete').length > 0 ? '#fff' : 'var(--primary-text)',
+              border: `1px solid ${Object.values(gradingResults).filter(r => r.status === 'complete').length > 0 ? '#10a37f' : 'var(--border)'}`,
+              borderRadius: '6px',
+              cursor: Object.values(gradingResults).filter(r => r.status === 'complete').length > 0 ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s ease',
+              opacity: exportingToSheet ? '0.7' : '1',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            {exportingToSheet ? (
+              <>
+                <div className="loading-spinner" style={{ width: '16px', height: '16px' }}></div>
+                Exporting...
+              </>
+            ) : (
+              <>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export to Google Sheets
+                <span style={{ 
+                  backgroundColor: 'rgba(255,255,255,0.2)', 
+                  padding: '0.2rem 0.5rem', 
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}>
+                  {Object.values(gradingResults).filter(r => r.status === 'complete').length}
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* Show link to exported sheet if available */}
+          {exportedSheetUrl && (
+            <a
+              href={exportedSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                marginTop: '0.75rem',
+                padding: '0.5rem',
+                color: '#10a37f',
+                textDecoration: 'none',
+                fontSize: '0.9rem',
+                fontWeight: '500',
+                backgroundColor: 'rgba(16, 163, 127, 0.1)',
+                borderRadius: '6px',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(16, 163, 127, 0.2)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(16, 163, 127, 0.1)'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/>
+                <line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+              View Exported Sheet
+            </a>
+          )}
         </div>
         
         <div style={{

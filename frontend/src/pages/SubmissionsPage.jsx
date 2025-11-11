@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import SubmissionDetail from '../components/SubmissionDetail';
 import { API } from '../App';
 
 const SubmissionsPage = () => {
   const { courseId, assignmentId } = useParams();
+  const location = useLocation();
   const [courseDetails, setCourseDetails] = useState(null);
   const [assignmentDetails, setAssignmentDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Get the generated answer key from navigation state (if coming from Grade Without Key workflow)
+  const generatedAnswerKey = location.state?.generatedAnswerKey || null;
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -90,6 +94,7 @@ const SubmissionsPage = () => {
         courseName={courseDetails?.name}
         assignmentId={assignmentId}
         assignmentTitle={assignmentDetails?.title}
+        generatedAnswerKey={generatedAnswerKey}
       />
     </div>
   );

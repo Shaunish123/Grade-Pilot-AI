@@ -57,7 +57,7 @@ function AssignmentList({ courseId }) {
   }, [courseId]);
 
   const handleAssignmentClick = (assignmentId) => {
-    navigate(`/course/${courseId}/assignment/${assignmentId}/submissions`);
+    navigate(`/course/${courseId}/assignment/${assignmentId}/grade`);
   };
 
   const handleBackClick = () => {
