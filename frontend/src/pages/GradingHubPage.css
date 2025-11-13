@@ -1,0 +1,414 @@
+/* GradingHubPage.css */
+
+.grading-hub-page {
+  min-height: 100vh;
+  background: var(--background);
+  padding: 2rem;
+  position: relative;
+}
+
+.grading-hub-page::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hub-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* Header Section */
+.hub-header {
+  text-align: center;
+  margin-bottom: 3rem;
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.back-btn {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--primary-text);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.back-btn:hover {
+  background: var(--primary);
+  color: white;
+  transform: translateX(-4px);
+  border-color: var(--primary);
+}
+
+.hub-title {
+  font-size: 3rem;
+  font-weight: 700;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 1rem;
+  animation: slideInRight 0.8s ease-out;
+}
+
+.hub-course-name {
+  font-size: 1.25rem;
+  color: var(--secondary-text);
+  margin-bottom: 0.5rem;
+  animation: fadeInUp 0.8s ease-out 0.2s both;
+}
+
+.hub-assignment-name {
+  font-size: 1.75rem;
+  color: var(--primary);
+  font-weight: 600;
+  animation: fadeInUp 0.8s ease-out 0.3s both;
+}
+
+/* Path Cards Grid */
+.path-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 2rem;
+  margin-top: 4rem;
+  animation: fadeInUp 0.8s ease-out 0.4s both;
+}
+
+.path-card {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 3rem;
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.path-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.path-card:hover::before {
+  left: 100%;
+}
+
+.path-card.primary-card {
+  border-color: var(--primary);
+}
+
+.path-card.success-card {
+  border-color: var(--success);
+}
+
+.path-card:hover {
+  transform: translateY(-12px);
+  box-shadow: var(--shadow-xl);
+}
+
+.path-card.primary-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 20px 40px rgba(99, 102, 241, 0.3);
+}
+
+.path-card.success-card:hover {
+  border-color: var(--success);
+  box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+}
+
+/* Icon Circle */
+.path-icon {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+  color: white;
+  font-size: 3rem;
+  transition: all 0.4s ease;
+  position: relative;
+}
+
+.path-card.primary-card .path-icon {
+  background: var(--gradient-primary);
+}
+
+.path-card.success-card .path-icon {
+  background: var(--gradient-success);
+}
+
+.path-card:hover .path-icon {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.path-icon::after {
+  content: '';
+  position: absolute;
+  width: 120%;
+  height: 120%;
+  border-radius: 50%;
+  border: 2px solid;
+  opacity: 0;
+  animation: ripple 2s ease-out infinite;
+}
+
+.path-card.primary-card .path-icon::after {
+  border-color: var(--primary);
+}
+
+.path-card.success-card .path-icon::after {
+  border-color: var(--success);
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Card Content */
+.path-card h2 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--primary-text);
+  margin-bottom: 1rem;
+  transition: color 0.3s ease;
+}
+
+.path-card p {
+  font-size: 1.1rem;
+  color: var(--secondary-text);
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+/* Action Button */
+.path-action {
+  padding: 1rem 2.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: white;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.path-card.primary-card .path-action {
+  background: var(--primary);
+}
+
+.path-card.success-card .path-action {
+  background: var(--success);
+}
+
+.path-action::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.5s ease, height 0.5s ease;
+}
+
+.path-card:hover .path-action::before {
+  width: 300px;
+  height: 300px;
+}
+
+.path-card:hover .path-action {
+  transform: scale(1.05);
+}
+
+/* Features List */
+.path-features {
+  margin-top: 2rem;
+  text-align: left;
+}
+
+.path-features ul {
+  list-style: none;
+  padding: 0;
+}
+
+.path-features li {
+  padding: 0.75rem 0;
+  color: var(--primary-text);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+  opacity: 0;
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.path-features li:nth-child(1) { animation-delay: 0.5s; }
+.path-features li:nth-child(2) { animation-delay: 0.6s; }
+.path-features li:nth-child(3) { animation-delay: 0.7s; }
+
+.path-features li::before {
+  content: '✓';
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.path-card.primary-card .path-features li::before {
+  background: var(--primary);
+}
+
+.path-card.success-card .path-features li::before {
+  background: var(--success);
+}
+
+/* Badge */
+.recommended-badge {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: var(--gradient-success);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 1rem;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  color: var(--secondary-text);
+  font-size: 1.1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .path-cards {
+    grid-template-columns: 1fr;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  
+  .back-btn {
+    position: relative;
+    margin-bottom: 2rem;
+  }
+  
+  .hub-header {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .grading-hub-page {
+    padding: 1rem;
+  }
+  
+  .hub-title {
+    font-size: 2rem;
+  }
+  
+  .hub-assignment-name {
+    font-size: 1.25rem;
+  }
+  
+  .path-card {
+    padding: 2rem 1.5rem;
+  }
+  
+  .path-icon {
+    width: 80px;
+    height: 80px;
+    font-size: 2.5rem;
+  }
+  
+  .path-card h2 {
+    font-size: 1.5rem;
+  }
+  
+  .path-card p {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .hub-title {
+    font-size: 1.75rem;
+  }
+  
+  .path-cards {
+    gap: 1.5rem;
+  }
+  
+  .path-action {
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+  }
+}

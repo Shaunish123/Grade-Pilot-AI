@@ -5,6 +5,7 @@ import { API } from '../App'; // Import the configured Axios instance
 import CourseList from '../components/CourseList';
 import AssignmentList from '../components/AssignmentList';
 import SubmissionDetail from '../components/SubmissionDetail'; // Make sure this path is correct
+import './DashboardPage.css';
 
 function DashboardPage() {
   const navigate = useNavigate();
@@ -101,79 +102,170 @@ function DashboardPage() {
 
   // --- Render ---
   return (
-    <div className="dashboard-container">
-      <div className="header">
-        <h1>Grade Pilot AI Dashboard</h1>
-        <button onClick={handleLogout} className="logout-button">Logout</button>
+    <div className="dashboard-page">
+      <div className="dashboard-hero">
+        <div className="hero-content">
+          <h1>📚 Grade Pilot AI Dashboard</h1>
+          <p>Streamline your grading workflow with AI-powered assistance</p>
+        </div>
+        <button onClick={handleLogout} className="logout-btn">
+          🚪 Logout
+        </button>
       </div>
 
-      {loading && <div className="loading-message">Loading data...</div>}
-      {error && <div className="error-message">Error: {error}</div>}
+      {loading && (
+        <div className="loading-overlay">
+          <div className="loading-spinner"></div>
+          <p>Loading your data...</p>
+        </div>
+      )}
+      {error && (
+        <div className="error-banner">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} className="dismiss-btn">✕</button>
+        </div>
+      )}
 
-      <div className="container">
+      <div className="dashboard-stats">
+        <div className="stat-card">
+          <div className="stat-icon">🎓</div>
+          <div className="stat-content">
+            <h3>{courses.length}</h3>
+            <p>Active Classes</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">📝</div>
+          <div className="stat-content">
+            <h3>{assignments.length}</h3>
+            <p>Assignments</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">👥</div>
+          <div className="stat-content">
+            <h3>{submissions.length}</h3>
+            <p>Submissions</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">✅</div>
+          <div className="stat-content">
+            <h3>{submissions.filter(s => s.assignedGrade).length}</h3>
+            <p>Graded</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="dashboard-grid">
         {/* Course List Column */}
-        <div className="column">
-          <h3>Your Classes</h3>
-          <div className="flex-grow">
-            <CourseList 
-              courses={courses} 
-              selectedCourse={selectedCourse} 
-              onSelectCourse={setSelectedCourse} 
-            />
+        <div className="section-card">
+          <div className="section-header">
+            <h2>🏫 Your Classes</h2>
+            <span className="badge">{courses.length}</span>
+          </div>
+          <div className="section-content">
+            {courses.length > 0 ? (
+              <CourseList 
+                courses={courses} 
+                selectedCourse={selectedCourse} 
+                onSelectCourse={setSelectedCourse} 
+              />
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">📚</div>
+                <p>No classes found</p>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Assignment List Column */}
-        <div className="column">
-          <h3>Assignments</h3>
-          {selectedCourse ? (
-            <div className="flex-grow">
-              <AssignmentList 
-                assignments={assignments} 
-                selectedAssignment={selectedAssignment} 
-                onSelectAssignment={setSelectedAssignment} 
-              />
-            </div>
-          ) : (
-            <p>Select a class to see assignments.</p>
-          )}
+        <div className="section-card">
+          <div className="section-header">
+            <h2>📋 Assignments</h2>
+            <span className="badge">{assignments.length}</span>
+          </div>
+          <div className="section-content">
+            {selectedCourse ? (
+              assignments.length > 0 ? (
+                <AssignmentList 
+                  assignments={assignments} 
+                  selectedAssignment={selectedAssignment} 
+                  onSelectAssignment={setSelectedAssignment} 
+                />
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon">📝</div>
+                  <p>No assignments found</p>
+                </div>
+              )
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">👈</div>
+                <p>Select a class to see assignments</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Submission Detail & Grading Column */}
-        <div className="column column-wide"> {/* Use column-wide for this one */}
-          <h3>Student Submissions & Grading</h3>
-          {selectedAssignment ? (
-            selectedSubmission ? ( // If a specific submission is selected, show its details
-              <SubmissionDetail
-                selectedCourse={selectedCourse}
-                selectedAssignment={selectedAssignment}
-                selectedSubmission={selectedSubmission} // Pass the full submission object
-                onBack={() => setSelectedSubmission(null)} // Go back to submissions list
-                API={API}
-              />
-            ) : ( // Otherwise, show the list of submissions
-              <div className="flex-grow">
-                {submissions.length > 0 ? (
-                  <ul>
-                    {submissions.map((sub) => (
-                      <li 
-                        key={sub.id} 
-                        className="list-item" 
-                        onClick={() => setSelectedSubmission(sub)} // Pass the full submission object to state
-                      >
-                        {/* CHANGE HERE: Use sub.studentName */}
-                        Student: {sub.studentName || `ID: ${sub.userId}`} (Status: {sub.state})
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No turned-in submissions for this assignment.</p>
-                )}
+        <div className="section-card section-wide">
+          <div className="section-header">
+            <h2>👥 Student Submissions</h2>
+            <span className="badge">{submissions.length}</span>
+          </div>
+          <div className="section-content">
+            {selectedAssignment ? (
+              selectedSubmission ? (
+                <SubmissionDetail
+                  selectedCourse={selectedCourse}
+                  selectedAssignment={selectedAssignment}
+                  selectedSubmission={selectedSubmission}
+                  onBack={() => setSelectedSubmission(null)}
+                  API={API}
+                />
+              ) : (
+                <div className="submissions-list">
+                  {submissions.length > 0 ? (
+                    <ul>
+                      {submissions.map((sub) => (
+                        <li 
+                          key={sub.id} 
+                          className="submission-item" 
+                          onClick={() => setSelectedSubmission(sub)}
+                        >
+                          <div className="submission-info">
+                            <span className="student-name">
+                              {sub.studentName || `Student ID: ${sub.userId}`}
+                            </span>
+                            <span className={`status-badge ${sub.state.toLowerCase()}`}>
+                              {sub.state}
+                            </span>
+                          </div>
+                          {sub.assignedGrade && (
+                            <div className="grade-preview">
+                              Grade: {sub.assignedGrade}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="empty-state">
+                      <div className="empty-icon">📭</div>
+                      <p>No submissions yet</p>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">👈</div>
+                <p>Select an assignment to view submissions</p>
               </div>
-            )
-          ) : (
-            <p>Select an assignment to see student submissions.</p>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
