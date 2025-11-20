@@ -55,22 +55,35 @@ const GradingHubPage = () => {
       <div className="hub-container">
         {/* Header */}
         <div className="hub-header">
-          <button
-            onClick={() => navigate(`/course/${courseId}/assignments`)}
-            className="back-btn"
-          >
-            <span>←</span> Back to Assignments
-          </button>
+          <div className="header-left">
+            <button
+              onClick={() => navigate(`/course/${courseId}/assignments`)}
+              className="back-btn"
+            >
+              <span>←</span> Back to Assignments
+            </button>
+          </div>
           
-          <h1 className="hub-title">
-            ⚡ Grading Hub
-          </h1>
-          <p className="hub-course-name">
-            {courseDetails?.name}
-          </p>
-          <p className="hub-assignment-name">
-            {assignmentDetails?.title}
-          </p>
+          <div className="header-center">
+            <h1 className="hub-title">
+              ⚡ Grading Hub
+            </h1>
+            <p className="hub-course-name">
+              {courseDetails?.name}
+            </p>
+            <p className="hub-assignment-name">
+              {assignmentDetails?.title}
+            </p>
+          </div>
+          
+          <div className="header-right">
+            <button
+              onClick={() => navigate('/analytics')}
+              className="analytics-nav-btn"
+            >
+              📊 Analytics
+            </button>
+          </div>
         </div>
 
         {/* Path Selection Cards */}

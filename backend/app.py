@@ -67,7 +67,45 @@ SCOPES = [
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# --- Global storage for graded assignments (in-memory, will reset on server restart) ---
+# --- MongoDB Setup ---
+from pymongo import MongoClient
+from bson import ObjectId
+import certifi
+
+MONGO_URI = os.getenv("MONGO_URI")
+
+# Initialize MongoDB connection
+try:
+    mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    db = mongo_client['gradepilot']
+    
+    # Collections
+    grades_collection = db['grades']
+    students_collection = db['students']
+    
+    # Create indexes for faster queries
+    grades_collection.create_index([("course_id", 1)])
+    grades_collection.create_index([("assignment_id", 1)])
+    grades_collection.create_index([("student_name", 1)])
+    grades_collection.create_index([("timestamp", -1)])
+    grades_collection.create_index([("course_id", 1), ("assignment_id", 1)])
+    grades_collection.create_index([("student_name", 1), ("course_id", 1)])
+    
+    students_collection.create_index([("student_name", 1)])
+    students_collection.create_index([("course_id", 1)])
+    
+    print("✅ MongoDB connected successfully!")
+    print(f"📊 Database: {db.name}")
+    
+except Exception as e:
+    print(f"⚠️ MongoDB connection failed: {e}")
+    print("⚠️ Will fall back to in-memory storage")
+    mongo_client = None
+    db = None
+    grades_collection = None
+    students_collection = None
+
+# --- Global storage for graded assignments (in-memory fallback) ---
 graded_assignments_history = []
 
 
@@ -622,7 +660,44 @@ async def grade_submission(request: Request):
             "grade_justification": grade_justification,
             "timestamp": datetime.datetime.now().isoformat()
         }
-        graded_assignments_history.append(graded_item)
+        
+        # Save to MongoDB (with fallback to in-memory)
+        if grades_collection is not None:
+            try:
+                result = grades_collection.insert_one(graded_item.copy())
+                print(f"✅ Grade saved to MongoDB with ID: {result.inserted_id}")
+                
+                # Update student's record
+                students_collection.update_one(
+                    {"student_name": student_name, "course_id": course_id},
+                    {
+                        "$set": {
+                            "student_name": student_name,
+                            "course_id": course_id,
+                            "course_name": course_name,
+                            "last_updated": datetime.datetime.now().isoformat()
+                        },
+                        "$inc": {"total_assignments": 1},
+                        "$push": {
+                            "grades_history": {
+                                "assignment_id": assignment_id,
+                                "assignment_title": assignment_title,
+                                "grade": final_grade,
+                                "timestamp": graded_item["timestamp"]
+                            }
+                        }
+                    },
+                    upsert=True
+                )
+                print(f"✅ Student profile updated for {student_name}")
+            except Exception as mongo_error:
+                print(f"⚠️ MongoDB save error: {mongo_error}")
+                print("⚠️ Falling back to in-memory storage")
+                graded_assignments_history.append(graded_item)
+        else:
+            # Fallback to in-memory if MongoDB not connected
+            graded_assignments_history.append(graded_item)
+            print("⚠️ Using in-memory storage (MongoDB not connected)")
 
         print(f"AI Grade: {final_grade}/100. Providing review for dashboard display only (no Classroom update).")
         # CHANGED: 'jsonify' is replaced with returning a dictionary
@@ -656,10 +731,45 @@ async def grade_submission(request: Request):
 
 # CHANGED: Converted Flask route to FastAPI GET endpoint
 @app.get('/api/graded_history')
-async def get_graded_history():
-    """Returns the list of all assignments graded in the current session."""
-    # CHANGED: 'jsonify' is replaced with returning the list directly
-    return graded_assignments_history
+async def get_graded_history(course_id: str = None, assignment_id: str = None):
+    """
+    Returns the list of all graded assignments from MongoDB.
+    Can filter by course_id and/or assignment_id.
+    """
+    try:
+        # Build query filter
+        query = {}
+        if course_id:
+            query['course_id'] = course_id
+        if assignment_id:
+            query['assignment_id'] = assignment_id
+        
+        # Fetch from MongoDB if available
+        if grades_collection is not None:
+            grades = list(grades_collection.find(
+                query,
+                {'_id': 0}  # Exclude MongoDB's _id field
+            ).sort('timestamp', -1))  # Most recent first
+            print(f"📊 Fetched {len(grades)} grades from MongoDB")
+            return grades
+        else:
+            # Fallback to in-memory storage
+            print("⚠️ Using in-memory storage (MongoDB not connected)")
+            if course_id or assignment_id:
+                # Apply filters manually for in-memory
+                filtered = [
+                    g for g in graded_assignments_history
+                    if (not course_id or g.get('course_id') == course_id) and
+                       (not assignment_id or g.get('assignment_id') == assignment_id)
+                ]
+                return filtered
+            return graded_assignments_history
+    except Exception as e:
+        print(f"❌ Error fetching graded history: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
 
 
 # --- 7. GRADING HUB ENDPOINTS (New Feature) ---
@@ -1112,7 +1222,7 @@ async def grade_with_gemini(request: Request):
                 grade_justification = justification_match.group(1).strip()
                 feedback_str = feedback_match.group(1).strip()
                 
-                # Store in history
+                # Store graded item
                 graded_item = {
                     "course_id": course_id,
                     "course_name": course_name,
@@ -1125,7 +1235,40 @@ async def grade_with_gemini(request: Request):
                     "grade_justification": grade_justification,
                     "timestamp": datetime.datetime.now().isoformat()
                 }
-                graded_assignments_history.append(graded_item)
+                
+                # Save to MongoDB (with fallback to in-memory)
+                if grades_collection is not None:
+                    try:
+                        result = grades_collection.insert_one(graded_item.copy())
+                        print(f"✅ Grade saved to MongoDB for {student_name}")
+                        
+                        # Update student's record
+                        students_collection.update_one(
+                            {"student_name": student_name, "course_id": course_id},
+                            {
+                                "$set": {
+                                    "student_name": student_name,
+                                    "course_id": course_id,
+                                    "course_name": course_name,
+                                    "last_updated": datetime.datetime.now().isoformat()
+                                },
+                                "$inc": {"total_assignments": 1},
+                                "$push": {
+                                    "grades_history": {
+                                        "assignment_id": assignment_id,
+                                        "assignment_title": assignment_title,
+                                        "grade": final_grade,
+                                        "timestamp": graded_item["timestamp"]
+                                    }
+                                }
+                            },
+                            upsert=True
+                        )
+                    except Exception as mongo_error:
+                        print(f"⚠️ MongoDB save error for {student_name}: {mongo_error}")
+                        graded_assignments_history.append(graded_item)
+                else:
+                    graded_assignments_history.append(graded_item)
                 
                 graded_submissions.append({
                     "submission_id": submission_id,
@@ -1381,6 +1524,558 @@ async def export_grades_to_sheet(request: Request):
         print(f"Unexpected error in export_grades_to_sheet: {e}")
         return JSONResponse(
             content={"error": f"An unexpected error occurred: {str(e)}"},
+            status_code=500
+        )
+
+
+# --- 9. ANALYTICS ENDPOINTS ---
+
+@app.get('/api/analytics/distribution')
+async def get_grade_distribution(
+    request: Request,
+    course_id: str = None,
+    assignment_id: str = None,
+    student_name: str = None
+):
+    """
+    Get grade distribution for histogram/bar chart.
+    Can filter by course, assignment, or student.
+    """
+    try:
+        # Build query filter
+        query = {}
+        if course_id:
+            query['course_id'] = course_id
+        if assignment_id:
+            query['assignment_id'] = assignment_id
+        if student_name:
+            query['student_name'] = student_name
+        
+        # Get all grades matching the filter
+        if grades_collection is not None:
+            grades = list(grades_collection.find(query, {'assignedGrade': 1, '_id': 0}))
+        else:
+            # Fallback to in-memory
+            grades = [
+                {'assignedGrade': g['assignedGrade']}
+                for g in graded_assignments_history
+                if (not course_id or g.get('course_id') == course_id) and
+                   (not assignment_id or g.get('assignment_id') == assignment_id) and
+                   (not student_name or g.get('student_name') == student_name)
+            ]
+        
+        if not grades:
+            return {
+                "distribution": {"0-50": 0, "51-70": 0, "71-85": 0, "86-100": 0},
+                "total_graded": 0,
+                "average_grade": 0
+            }
+        
+        # Calculate distribution
+        distribution = {"0-50": 0, "51-70": 0, "71-85": 0, "86-100": 0}
+        total_score = 0
+        
+        for grade_doc in grades:
+            grade = grade_doc['assignedGrade']
+            total_score += grade
+            
+            if grade <= 50:
+                distribution["0-50"] += 1
+            elif grade <= 70:
+                distribution["51-70"] += 1
+            elif grade <= 85:
+                distribution["71-85"] += 1
+            else:
+                distribution["86-100"] += 1
+        
+        return {
+            "distribution": distribution,
+            "total_graded": len(grades),
+            "average_grade": round(total_score / len(grades), 2)
+        }
+    except Exception as e:
+        print(f"❌ Error in get_grade_distribution: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get('/api/analytics/student-history/{student_name}')
+async def get_student_history(student_name: str, course_id: str = None):
+    """
+    Get all previous grades and performance history for a specific student.
+    Can optionally filter by course.
+    """
+    try:
+        query = {'student_name': student_name}
+        if course_id:
+            query['course_id'] = course_id
+        
+        # Get all grades for this student
+        if grades_collection is not None:
+            grades = list(grades_collection.find(
+                query,
+                {'_id': 0}
+            ).sort('timestamp', -1))
+        else:
+            # Fallback to in-memory
+            grades = [
+                g for g in graded_assignments_history
+                if g.get('student_name') == student_name and
+                   (not course_id or g.get('course_id') == course_id)
+            ]
+            grades.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        if not grades:
+            return {
+                "student_name": student_name,
+                "grades": [],
+                "average_grade": 0,
+                "total_assignments": 0,
+                "courses": [],
+                "performance_trend": []
+            }
+        
+        # Calculate statistics
+        total_score = sum(g['assignedGrade'] for g in grades)
+        average_grade = round(total_score / len(grades), 2)
+        
+        # Get unique courses
+        courses = list(set(g['course_name'] for g in grades))
+        
+        # Performance trend (last 10 assignments)
+        performance_trend = [
+            {
+                "assignment": g['assignment_title'],
+                "grade": g['assignedGrade'],
+                "date": g['timestamp']
+            }
+            for g in grades[:10]
+        ]
+        
+        # Grade by course
+        course_performance = {}
+        for grade in grades:
+            course = grade['course_name']
+            if course not in course_performance:
+                course_performance[course] = []
+            course_performance[course].append(grade['assignedGrade'])
+        
+        course_averages = {
+            course: round(sum(grades_list) / len(grades_list), 2)
+            for course, grades_list in course_performance.items()
+        }
+        
+        return {
+            "student_name": student_name,
+            "grades": grades,
+            "average_grade": average_grade,
+            "total_assignments": len(grades),
+            "courses": courses,
+            "performance_trend": performance_trend,
+            "course_averages": course_averages
+        }
+    except Exception as e:
+        print(f"❌ Error in get_student_history: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get('/api/analytics/course-stats/{course_id}')
+async def get_course_stats(course_id: str):
+    """
+    Get comprehensive statistics for a specific course.
+    Includes assignment-wise breakdown and student performance.
+    """
+    try:
+        # Use MongoDB aggregation if available
+        if grades_collection is not None:
+            pipeline = [
+                {"$match": {"course_id": course_id}},
+                {"$group": {
+                    "_id": "$assignment_id",
+                    "assignment_title": {"$first": "$assignment_title"},
+                    "course_name": {"$first": "$course_name"},
+                    "avg_grade": {"$avg": "$assignedGrade"},
+                    "min_grade": {"$min": "$assignedGrade"},
+                    "max_grade": {"$max": "$assignedGrade"},
+                    "count": {"$sum": 1},
+                    "grades": {"$push": "$assignedGrade"}
+                }},
+                {"$sort": {"avg_grade": -1}}
+            ]
+            
+            stats = list(grades_collection.aggregate(pipeline))
+        else:
+            # Fallback: manual aggregation for in-memory
+            course_grades = [g for g in graded_assignments_history if g.get('course_id') == course_id]
+            if not course_grades:
+                return {
+                    "course_id": course_id,
+                    "course_name": "Unknown",
+                    "total_assignments": 0,
+                    "total_graded": 0,
+                    "overall_average": 0,
+                    "assignments": []
+                }
+            
+            # Group by assignment
+            assignment_map = {}
+            for g in course_grades:
+                aid = g['assignment_id']
+                if aid not in assignment_map:
+                    assignment_map[aid] = {
+                        '_id': aid,
+                        'assignment_title': g['assignment_title'],
+                        'course_name': g['course_name'],
+                        'grades': []
+                    }
+                assignment_map[aid]['grades'].append(g['assignedGrade'])
+            
+            stats = []
+            for aid, data in assignment_map.items():
+                grades_list = data['grades']
+                stats.append({
+                    '_id': aid,
+                    'assignment_title': data['assignment_title'],
+                    'course_name': data['course_name'],
+                    'avg_grade': sum(grades_list) / len(grades_list),
+                    'min_grade': min(grades_list),
+                    'max_grade': max(grades_list),
+                    'count': len(grades_list),
+                    'grades': grades_list
+                })
+            stats.sort(key=lambda x: x['avg_grade'], reverse=True)
+        
+        if not stats:
+            return {
+                "course_id": course_id,
+                "course_name": "Unknown",
+                "total_assignments": 0,
+                "total_graded": 0,
+                "overall_average": 0,
+                "assignments": []
+            }
+        
+        # Calculate overall statistics
+        total_graded = sum(s['count'] for s in stats)
+        all_grades = []
+        for s in stats:
+            all_grades.extend(s['grades'])
+        
+        overall_average = round(sum(all_grades) / len(all_grades), 2) if all_grades else 0
+        
+        # Format assignment stats
+        formatted_stats = []
+        for stat in stats:
+            # Calculate standard deviation
+            grades = stat['grades']
+            mean = stat['avg_grade']
+            variance = sum((g - mean) ** 2 for g in grades) / len(grades)
+            std_dev = round(variance ** 0.5, 2)
+            
+            formatted_stats.append({
+                "assignment_id": stat["_id"],
+                "assignment_title": stat["assignment_title"],
+                "average_grade": round(stat["avg_grade"], 2),
+                "min_grade": stat["min_grade"],
+                "max_grade": stat["max_grade"],
+                "submissions_count": stat["count"],
+                "std_deviation": std_dev
+            })
+        
+        return {
+            "course_id": course_id,
+            "course_name": stats[0]['course_name'],
+            "total_assignments": len(stats),
+            "total_graded": total_graded,
+            "overall_average": overall_average,
+            "assignments": formatted_stats
+        }
+    except Exception as e:
+        print(f"❌ Error in get_course_stats: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get('/api/analytics/students')
+async def get_all_students(course_id: str = None, sort_by: str = "average_grade"):
+    """
+    Get list of all students with their performance metrics.
+    Can filter by course and sort by various fields.
+    """
+    try:
+        # Build match query
+        match_query = {}
+        if course_id:
+            match_query['course_id'] = course_id
+        
+        # Use MongoDB aggregation if available
+        if grades_collection is not None:
+            pipeline = [
+                {"$match": match_query},
+                {"$group": {
+                    "_id": "$student_name",
+                    "avg_grade": {"$avg": "$assignedGrade"},
+                    "total_assignments": {"$sum": 1},
+                    "highest_grade": {"$max": "$assignedGrade"},
+                    "lowest_grade": {"$min": "$assignedGrade"},
+                    "courses": {"$addToSet": "$course_name"},
+                    "recent_grade": {"$last": "$assignedGrade"},
+                    "recent_assignment": {"$last": "$assignment_title"}
+                }},
+                {"$sort": {"avg_grade": -1 if sort_by == "average_grade" else 1}}
+            ]
+            
+            students = list(grades_collection.aggregate(pipeline))
+        else:
+            # Fallback: manual aggregation
+            filtered_grades = [
+                g for g in graded_assignments_history
+                if not course_id or g.get('course_id') == course_id
+            ]
+            
+            student_map = {}
+            for g in filtered_grades:
+                sname = g['student_name']
+                if sname not in student_map:
+                    student_map[sname] = {
+                        '_id': sname,
+                        'grades': [],
+                        'courses': set(),
+                        'recent_grade': g['assignedGrade'],
+                        'recent_assignment': g['assignment_title']
+                    }
+                student_map[sname]['grades'].append(g['assignedGrade'])
+                student_map[sname]['courses'].add(g['course_name'])
+            
+            students = []
+            for sname, data in student_map.items():
+                grades = data['grades']
+                students.append({
+                    '_id': sname,
+                    'avg_grade': sum(grades) / len(grades),
+                    'total_assignments': len(grades),
+                    'highest_grade': max(grades),
+                    'lowest_grade': min(grades),
+                    'courses': list(data['courses']),
+                    'recent_grade': data['recent_grade'],
+                    'recent_assignment': data['recent_assignment']
+                })
+            students.sort(key=lambda x: x['avg_grade'], reverse=True)
+        
+        # Format for frontend
+        formatted_students = []
+        for student in students:
+            formatted_students.append({
+                "student_name": student["_id"],
+                "average_grade": round(student["avg_grade"], 2),
+                "total_assignments": student["total_assignments"],
+                "highest_grade": student["highest_grade"],
+                "lowest_grade": student["lowest_grade"],
+                "courses": student["courses"],
+                "recent_performance": {
+                    "grade": student["recent_grade"],
+                    "assignment": student["recent_assignment"]
+                }
+            })
+        
+        return {
+            "total_students": len(formatted_students),
+            "students": formatted_students
+        }
+    except Exception as e:
+        print(f"❌ Error in get_all_students: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get('/api/analytics/compare')
+async def compare_performance(
+    type: str,  # "courses" or "assignments"
+    ids: str = None  # comma-separated IDs to compare
+):
+    """
+    Compare performance across multiple courses or assignments.
+    Returns comparative statistics for visualization.
+    """
+    try:
+        if type == "courses":
+            # Compare multiple courses
+            course_ids = ids.split(',') if ids else []
+            
+            comparison_data = []
+            for course_id in course_ids:
+                if grades_collection is not None:
+                    grades = list(grades_collection.find(
+                        {"course_id": course_id},
+                        {"assignedGrade": 1, "course_name": 1, "_id": 0}
+                    ))
+                else:
+                    grades = [
+                        {"assignedGrade": g['assignedGrade'], "course_name": g['course_name']}
+                        for g in graded_assignments_history
+                        if g.get('course_id') == course_id
+                    ]
+                
+                if grades:
+                    total_score = sum(g['assignedGrade'] for g in grades)
+                    comparison_data.append({
+                        "course_id": course_id,
+                        "course_name": grades[0]['course_name'],
+                        "average_grade": round(total_score / len(grades), 2),
+                        "total_graded": len(grades)
+                    })
+            
+            return {
+                "type": "courses",
+                "data": comparison_data
+            }
+        
+        elif type == "assignments":
+            # Compare multiple assignments
+            assignment_ids = ids.split(',') if ids else []
+            
+            comparison_data = []
+            for assignment_id in assignment_ids:
+                if grades_collection is not None:
+                    grades = list(grades_collection.find(
+                        {"assignment_id": assignment_id},
+                        {"assignedGrade": 1, "assignment_title": 1, "_id": 0}
+                    ))
+                else:
+                    grades = [
+                        {"assignedGrade": g['assignedGrade'], "assignment_title": g['assignment_title']}
+                        for g in graded_assignments_history
+                        if g.get('assignment_id') == assignment_id
+                    ]
+                
+                if grades:
+                    total_score = sum(g['assignedGrade'] for g in grades)
+                    comparison_data.append({
+                        "assignment_id": assignment_id,
+                        "assignment_title": grades[0]['assignment_title'],
+                        "average_grade": round(total_score / len(grades), 2),
+                        "total_graded": len(grades)
+                    })
+            
+            return {
+                "type": "assignments",
+                "data": comparison_data
+            }
+        
+        else:
+            return JSONResponse(
+                content={"error": "Invalid comparison type. Use 'courses' or 'assignments'."},
+                status_code=400
+            )
+    
+    except Exception as e:
+        print(f"❌ Error in compare_performance: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get('/api/analytics/trends')
+async def get_performance_trends(
+    course_id: str = None,
+    student_name: str = None,
+    time_period: str = "all"  # "week", "month", "semester", "all"
+):
+    """
+    Get performance trends over time.
+    Shows how grades have changed over different time periods.
+    """
+    try:
+        from datetime import timedelta
+        
+        # Build query
+        query = {}
+        if course_id:
+            query['course_id'] = course_id
+        if student_name:
+            query['student_name'] = student_name
+        
+        # Add time filter
+        if time_period != "all":
+            now = datetime.datetime.now()
+            if time_period == "week":
+                start_date = now - timedelta(days=7)
+            elif time_period == "month":
+                start_date = now - timedelta(days=30)
+            elif time_period == "semester":
+                start_date = now - timedelta(days=120)
+            else:
+                start_date = datetime.datetime(2000, 1, 1)
+            
+            query['timestamp'] = {"$gte": start_date.isoformat()}
+        
+        # Get grades sorted by time
+        if grades_collection is not None:
+            grades = list(grades_collection.find(
+                query,
+                {'assignedGrade': 1, 'timestamp': 1, 'assignment_title': 1, '_id': 0}
+            ).sort('timestamp', 1))
+        else:
+            # Fallback to in-memory
+            grades = [
+                {'assignedGrade': g['assignedGrade'], 'timestamp': g['timestamp'], 
+                 'assignment_title': g['assignment_title']}
+                for g in graded_assignments_history
+                if (not course_id or g.get('course_id') == course_id) and
+                   (not student_name or g.get('student_name') == student_name)
+            ]
+            grades.sort(key=lambda x: x['timestamp'])
+        
+        if not grades:
+            return {
+                "trend_data": [],
+                "overall_trend": "no_data"
+            }
+        
+        # Format trend data
+        trend_data = [
+            {
+                "date": g['timestamp'],
+                "grade": g['assignedGrade'],
+                "assignment": g.get('assignment_title', 'Unknown')
+            }
+            for g in grades
+        ]
+        
+        # Calculate trend direction
+        if len(grades) >= 3:
+            first_third_avg = sum(g['assignedGrade'] for g in grades[:len(grades)//3]) / (len(grades)//3)
+            last_third_avg = sum(g['assignedGrade'] for g in grades[-len(grades)//3:]) / (len(grades)//3)
+            
+            if last_third_avg > first_third_avg + 5:
+                overall_trend = "improving"
+            elif last_third_avg < first_third_avg - 5:
+                overall_trend = "declining"
+            else:
+                overall_trend = "stable"
+        else:
+            overall_trend = "insufficient_data"
+        
+        return {
+            "trend_data": trend_data,
+            "overall_trend": overall_trend,
+            "total_data_points": len(grades)
+        }
+    
+    except Exception as e:
+        print(f"❌ Error in get_performance_trends: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
             status_code=500
         )
 

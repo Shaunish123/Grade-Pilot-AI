@@ -18,10 +18,33 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
     const fetchSubmissions = async () => {
       try {
         setLoading(true);
+        
+        // Fetch submissions from Google Classroom
         const response = await API.get(
           `/api/courses/${courseId}/assignments/${assignmentId}/submissions`
         );
         setSubmissions(response.data);
+        
+        // Fetch graded history from MongoDB for this specific assignment
+        const historyResponse = await API.get(
+          `/api/graded_history?course_id=${courseId}&assignment_id=${assignmentId}`
+        );
+        const gradedHistory = historyResponse.data;
+        
+        // Map graded history to submissions by submission_id
+        const submissionsWithGrades = {};
+        gradedHistory.forEach(gradeRecord => {
+          submissionsWithGrades[gradeRecord.submission_id] = {
+            assignedGrade: gradeRecord.assignedGrade,
+            feedback: gradeRecord.feedback || 'No feedback available',
+            grade_justification: gradeRecord.grade_justification || 'No justification available',
+            status: 'complete'
+          };
+        });
+        
+        setGradingResults(submissionsWithGrades);
+        console.log(`✅ Loaded ${Object.keys(submissionsWithGrades).length} graded submissions from MongoDB`);
+        
         setError(null);
       } catch (error) {
         console.error('Error fetching submissions:', error);
@@ -126,9 +149,8 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
 
     try {
       for (const submission of submissions) {
-        if (gradingResults[submission.id]?.status !== 'complete') {
-          await gradeSubmission(submission.id, submission.studentName);
-        }
+        // Grade all submissions (allows re-grading)
+        await gradeSubmission(submission.id, submission.studentName);
       }
     } finally {
       setBatchGrading(false);
@@ -342,11 +364,11 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
               width: '100%',
               padding: '0.75rem',
               fontSize: '1rem',
-              backgroundColor: (useTextKey ? answerKeyText : answerKeyUrl) ? 'var(--success)' : 'var(--surface)',
-              color: (useTextKey ? answerKeyText : answerKeyUrl) ? '#fff' : 'var(--primary-text)',
-              border: `1px solid ${(useTextKey ? answerKeyText : answerKeyUrl) ? 'var(--success)' : 'var(--border)'}`,
+              backgroundColor: ((useTextKey && answerKeyText) || (!useTextKey && answerKeyUrl)) ? 'var(--success)' : 'var(--surface)',
+              color: ((useTextKey && answerKeyText) || (!useTextKey && answerKeyUrl)) ? '#fff' : 'var(--primary-text)',
+              border: `1px solid ${((useTextKey && answerKeyText) || (!useTextKey && answerKeyUrl)) ? 'var(--success)' : 'var(--border)'}`,
               borderRadius: '6px',
-              cursor: (useTextKey ? answerKeyText : answerKeyUrl) ? 'pointer' : 'not-allowed',
+              cursor: ((useTextKey && answerKeyText) || (!useTextKey && answerKeyUrl)) ? 'pointer' : 'not-allowed',
               transition: 'all 0.2s ease',
               opacity: (batchGrading || gradingSubmissions.size > 0) ? '0.7' : '1',
               marginBottom: '1rem'
@@ -449,6 +471,16 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
           }}>
             Total Submissions: <span style={{ color: 'var(--primary-text)', fontWeight: '600' }}>{submissions.length}</span>
           </p>
+          <p style={{
+            color: 'var(--secondary-text)',
+            fontSize: '0.9rem',
+            textAlign: 'center',
+            marginTop: '0.5rem'
+          }}>
+            Graded: <span style={{ color: '#10b981', fontWeight: '600' }}>
+              {Object.values(gradingResults).filter(r => r.status === 'complete').length}
+            </span>
+          </p>
         </div>
       </div>
 
@@ -457,21 +489,40 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
         {submissions.map((submission) => {
           const gradingResult = gradingResults[submission.id];
           const isGrading = gradingSubmissions.has(submission.id);
+          const isGraded = gradingResult?.status === 'complete';
+          // Check if answer key is available for grading
+          const canGrade = (useTextKey && answerKeyText) || (!useTextKey && answerKeyUrl);
 
           return (
             <div
               key={submission.id}
               style={{ 
-                backgroundColor: 'var(--surface)',
+                backgroundColor: isGraded ? 'rgba(16, 185, 129, 0.05)' : 'var(--surface)',
                 borderRadius: '12px',
                 padding: '1.5rem',
-                border: '1px solid var(--border)',
-                borderLeft: `4px solid ${gradingResult?.status === 'complete' ? 'var(--success)' : 'var(--border)'}`,
-                transition: 'all 0.2s ease'
+                border: isGraded ? '2px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border)',
+                borderLeft: `4px solid ${isGraded ? '#10b981' : 'var(--border)'}`,
+                transition: 'all 0.2s ease',
+                position: 'relative'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '2rem' }}>
                 <div style={{ flex: 1 }}>
+                  {isGraded && (
+                    <div style={{
+                      display: 'inline-block',
+                      marginBottom: '0.75rem',
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      padding: '0.375rem 0.875rem',
+                      borderRadius: '20px',
+                      fontSize: '0.85rem',
+                      fontWeight: '600',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                    }}>
+                      ✓ Already Graded
+                    </div>
+                  )}
                   <h2 style={{ 
                     fontSize: '1.25rem', 
                     fontWeight: '600', 
@@ -506,24 +557,97 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
                   {gradingResult && (
                     <div style={{ 
                       marginTop: '1rem',
-                      padding: '1rem',
-                      backgroundColor: 'var(--surface-hover)',
-                      borderRadius: '8px'
+                      padding: '1.25rem',
+                      backgroundColor: gradingResult.status === 'complete' ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface-hover)',
+                      borderRadius: '12px',
+                      border: gradingResult.status === 'complete' ? '2px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border)'
                     }}>
                       {gradingResult.status === 'complete' ? (
                         <>
-                          <p style={{ color: 'var(--success)', fontWeight: '600', marginBottom: '1rem' }}>
-                            Grade: {gradingResult.assignedGrade}/100
-                          </p>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.75rem',
+                            marginBottom: '1.25rem',
+                            paddingBottom: '1rem',
+                            borderBottom: '1px solid rgba(16, 185, 129, 0.2)'
+                          }}>
+                            <span style={{ 
+                              fontSize: '2rem',
+                              color: '#10b981'
+                            }}>
+                              ✓
+                            </span>
+                            <div>
+                              <p style={{ 
+                                color: '#10b981', 
+                                fontWeight: '700', 
+                                fontSize: '1.5rem',
+                                marginBottom: '0.25rem'
+                              }}>
+                                {gradingResult.assignedGrade}/100
+                              </p>
+                              <p style={{ 
+                                color: 'var(--secondary-text)', 
+                                fontSize: '0.85rem'
+                              }}>
+                                Graded and Saved
+                              </p>
+                            </div>
+                          </div>
+                          
                           <div style={{ marginBottom: '1rem' }}>
-                            <strong style={{ color: 'var(--primary-text)' }}>Justification:</strong>
-                            <p style={{ color: 'var(--secondary-text)', marginTop: '0.25rem' }}>
+                            <div style={{ 
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              marginBottom: '0.5rem'
+                            }}>
+                              <span style={{ fontSize: '1.25rem' }}>📝</span>
+                              <strong style={{ 
+                                color: 'var(--primary-text)',
+                                fontSize: '1.05rem'
+                              }}>
+                                Grade Justification:
+                              </strong>
+                            </div>
+                            <p style={{ 
+                              color: 'var(--secondary-text)', 
+                              marginLeft: '2rem',
+                              lineHeight: '1.6',
+                              backgroundColor: 'var(--surface)',
+                              padding: '0.75rem',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border)'
+                            }}>
                               {gradingResult.grade_justification}
                             </p>
                           </div>
+                          
                           <div>
-                            <strong style={{ color: 'var(--primary-text)' }}>Feedback:</strong>
-                            <p style={{ color: 'var(--secondary-text)', marginTop: '0.25rem' }}>
+                            <div style={{ 
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              marginBottom: '0.5rem'
+                            }}>
+                              <span style={{ fontSize: '1.25rem' }}>💬</span>
+                              <strong style={{ 
+                                color: 'var(--primary-text)',
+                                fontSize: '1.05rem'
+                              }}>
+                                Student Feedback:
+                              </strong>
+                            </div>
+                            <p style={{ 
+                              color: 'var(--secondary-text)', 
+                              marginLeft: '2rem',
+                              lineHeight: '1.6',
+                              backgroundColor: 'var(--surface)',
+                              padding: '0.75rem',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border)'
+                            }}>
                               {gradingResult.feedback}
                             </p>
                           </div>
@@ -543,21 +667,22 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
                 <div>
                   <button
                     onClick={() => handleGrade(submission.id, submission.studentName)}
-                    disabled={isGrading || batchGrading || !answerKeyUrl || gradingResult?.status === 'complete'}
+                    disabled={isGrading || batchGrading || !canGrade}
                     style={{
                       padding: '0.75rem 1.5rem',
                       fontSize: '1rem',
                       backgroundColor: isGrading ? 'var(--surface)' : 
-                                   gradingResult?.status === 'complete' ? 'var(--success)' : 'var(--primary)',
+                                   isGraded ? '#f59e0b' : 'var(--primary)',
                       color: '#fff',
                       border: 'none',
                       borderRadius: '6px',
-                      cursor: (isGrading || !answerKeyUrl || gradingResult?.status === 'complete') ? 'not-allowed' : 'pointer',
+                      cursor: (isGrading || batchGrading || !canGrade) ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s ease',
-                      opacity: (isGrading || !answerKeyUrl || gradingResult?.status === 'complete') ? '0.7' : '1',
+                      opacity: (isGrading || !canGrade) ? '0.7' : '1',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '0.5rem'
+                      gap: '0.5rem',
+                      fontWeight: '600'
                     }}
                   >
                     {isGrading ? (
@@ -565,10 +690,10 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
                         <div className="loading-spinner-small"></div>
                         <span>Grading...</span>
                       </>
-                    ) : gradingResult?.status === 'complete' ? (
-                      'Graded'
+                    ) : isGraded ? (
+                      '🔄 Re-Grade'
                     ) : (
-                      'Grade Submission'
+                      '✓ Grade Submission'
                     )}
                   </button>
                 </div>

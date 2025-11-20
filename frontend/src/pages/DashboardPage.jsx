@@ -108,9 +108,14 @@ function DashboardPage() {
           <h1>📚 Grade Pilot AI Dashboard</h1>
           <p>Streamline your grading workflow with AI-powered assistance</p>
         </div>
-        <button onClick={handleLogout} className="logout-btn">
-          🚪 Logout
-        </button>
+        <div className="hero-actions">
+          <button onClick={() => navigate('/analytics')} className="analytics-btn">
+            📊 Analytics
+          </button>
+          <button onClick={handleLogout} className="logout-btn">
+            🚪 Logout
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -213,7 +218,12 @@ function DashboardPage() {
         <div className="section-card section-wide">
           <div className="section-header">
             <h2>👥 Student Submissions</h2>
-            <span className="badge">{submissions.length}</span>
+            <div className="header-actions">
+              <span className="badge">{submissions.length}</span>
+              <button onClick={() => navigate('/analytics')} className="analytics-small-btn" title="View Analytics">
+                📊
+              </button>
+            </div>
           </div>
           <div className="section-content">
             {selectedAssignment ? (
@@ -232,20 +242,27 @@ function DashboardPage() {
                       {submissions.map((sub) => (
                         <li 
                           key={sub.id} 
-                          className="submission-item" 
+                          className={`submission-item ${sub.assignedGrade ? 'graded' : ''}`}
                           onClick={() => setSelectedSubmission(sub)}
                         >
                           <div className="submission-info">
                             <span className="student-name">
                               {sub.studentName || `Student ID: ${sub.userId}`}
                             </span>
-                            <span className={`status-badge ${sub.state.toLowerCase()}`}>
-                              {sub.state}
-                            </span>
+                            <div className="submission-badges">
+                              <span className={`status-badge ${sub.state.toLowerCase()}`}>
+                                {sub.state}
+                              </span>
+                              {sub.assignedGrade && (
+                                <span className="graded-badge">
+                                  ✓ Graded
+                                </span>
+                              )}
+                            </div>
                           </div>
                           {sub.assignedGrade && (
                             <div className="grade-preview">
-                              Grade: {sub.assignedGrade}
+                              <strong>Grade: {sub.assignedGrade}/100</strong>
                             </div>
                           )}
                         </li>

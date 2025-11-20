@@ -25,3 +25,8 @@ google-auth
 
 # ADD THIS FOR HANDWRITING RECOGNITION
 google-cloud-vision
+
+# MongoDB Integration
+pymongo
+dnspython
+certifi

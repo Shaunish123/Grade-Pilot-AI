@@ -40,6 +40,7 @@
 
 .floating-item {
   position: absolute;
+  bottom: -100px;
   animation: float linear infinite;
   opacity: 0.6;
   filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
@@ -47,7 +48,7 @@
 
 @keyframes float {
   0% {
-    transform: translateY(100vh) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
     opacity: 0;
   }
   10% {
@@ -57,7 +58,7 @@
     opacity: 0.6;
   }
   100% {
-    transform: translateY(-100px) rotate(360deg);
+    transform: translateY(-100vh) rotate(360deg);
     opacity: 0;
   }
 }
@@ -245,9 +246,9 @@
 }
 
 .feature-card {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 16px;
   padding: 1.5rem;
   display: flex;
@@ -262,19 +263,25 @@
 .feature-card:nth-child(3) { animation-delay: 0.8s; }
 
 .feature-card:hover {
-  transform: translateX(10px);
-  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.2);
   box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
 
 .feature-icon {
   font-size: 3rem;
+  flex-shrink: 0;
   animation: bounce 2s ease-in-out infinite;
 }
 
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
+}
+
+.feature-text {
+  flex: 1;
+  text-align: left;
 }
 
 .feature-text h3 {
@@ -354,12 +361,13 @@
 
 /* Login Card */
 .login-card {
-  background: white;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
   border-radius: 24px;
   padding: 3rem;
   box-shadow: 
     0 20px 60px rgba(0,0,0,0.3),
-    0 0 0 1px rgba(255,255,255,0.1);
+    0 0 0 1px rgba(255,255,255,0.3);
   width: 100%;
   max-width: 500px;
   position: relative;
@@ -395,13 +403,13 @@
 
 .login-header h2 {
   font-size: 2.5rem;
-  color: #333;
+  color: rgba(0, 0, 0, 0.9);
   margin-bottom: 1rem;
   font-weight: 700;
 }
 
 .login-header p {
-  color: #666;
+  color: rgba(0, 0, 0, 0.7);
   font-size: 1.1rem;
   line-height: 1.6;
 }
@@ -410,8 +418,10 @@
 .login-benefits {
   margin-bottom: 2rem;
   padding: 1.5rem;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
   border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .benefit-item {
@@ -420,7 +430,7 @@
   gap: 1rem;
   padding: 0.75rem 0;
   font-size: 1rem;
-  color: #333;
+  color: rgba(0, 0, 0, 0.85);
 }
 
 .benefit-check {
@@ -444,12 +454,13 @@
   gap: 1rem;
   width: 100%;
   padding: 1rem 2rem;
-  background: white;
-  border: 2px solid #e0e0e0;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.5);
   border-radius: 12px;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #333;
+  color: rgba(0, 0, 0, 0.9);
   text-decoration: none;
   transition: all 0.3s ease;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -459,6 +470,7 @@
 .google-login-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  background: rgba(255, 255, 255, 1);
   border-color: #4285F4;
 }
 
@@ -476,7 +488,7 @@
   justify-content: center;
   gap: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .trust-item {
@@ -484,7 +496,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.9rem;
-  color: #666;
+  color: rgba(0, 0, 0, 0.7);
 }
 
 .trust-icon {

@@ -7,6 +7,7 @@ import SubmissionsPage from './pages/SubmissionsPage';
 import GradingHubPage from './pages/GradingHubPage';
 import GradeWithKeyPage from './pages/GradeWithKeyPage';
 import GradeWithoutKeyPage from './pages/GradeWithoutKeyPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import ThemeToggle from './components/ThemeToggle';
 import axios from 'axios';
 
@@ -24,6 +25,7 @@ function App() {
         <Route path="/" element={<LoginPage />} />
         <Route path="/home" element={<HomePage API={API} />} />
         <Route path="/dashboard" element={<Navigate to="/home" replace />} />
+        <Route path="/analytics" element={<AnalyticsPage API={API} />} />
         <Route path="/course/:courseId/assignments" element={<AssignmentsPage API={API} />} />
         <Route path="/course/:courseId/assignment/:assignmentId/grade" element={<GradingHubPage />} />
         <Route path="/course/:courseId/assignment/:assignmentId/grade-with-key" element={<GradeWithKeyPage />} />

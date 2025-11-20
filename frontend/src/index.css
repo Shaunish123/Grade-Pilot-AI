@@ -32,35 +32,35 @@
 }
 
 [data-theme="light"] {
-  /* Light Mode Colors */
-  --background: #F8FAFC;
-  --background-secondary: #F1F5F9;
-  --surface: #FFFFFF;
-  --surface-hover: #F8FAFC;
+  /* Light Mode Colors - Warm Beige Palette */
+  --background: #F5F1E8;
+  --background-secondary: #EBE5D9;
+  --surface: #FAF8F3;
+  --surface-hover: #F0EBE0;
   --surface-elevated: #FFFFFF;
-  --primary-text: #1E293B;
-  --secondary-text: #64748B;
-  --tertiary-text: #94A3B8;
-  --border: #E2E8F0;
-  --border-hover: #CBD5E1;
-  --primary: #3B82F6;
-  --primary-hover: #2563EB;
-  --primary-light: rgba(59, 130, 246, 0.1);
-  --success: #10B981;
-  --success-hover: #059669;
-  --success-light: rgba(16, 185, 129, 0.1);
-  --warning: #F59E0B;
-  --warning-light: rgba(245, 158, 11, 0.1);
-  --error: #EF4444;
-  --error-light: rgba(239, 68, 68, 0.1);
-  --accent: #8B5CF6;
-  --accent-hover: #7C3AED;
-  --shadow-sm: rgba(0, 0, 0, 0.05);
-  --shadow-md: rgba(0, 0, 0, 0.08);
-  --shadow-lg: rgba(0, 0, 0, 0.12);
-  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --gradient-success: linear-gradient(135deg, #10B981 0%, #059669 100%);
-  --gradient-card: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+  --primary-text: #3E3428;
+  --secondary-text: #6B5E4F;
+  --tertiary-text: #8C7D6B;
+  --border: #D9D0C1;
+  --border-hover: #C4B9A7;
+  --primary: #B8956A;
+  --primary-hover: #A17D4F;
+  --primary-light: rgba(184, 149, 106, 0.15);
+  --success: #7FA581;
+  --success-hover: #6B8E6D;
+  --success-light: rgba(127, 165, 129, 0.15);
+  --warning: #D4A574;
+  --warning-light: rgba(212, 165, 116, 0.15);
+  --error: #C97B7B;
+  --error-light: rgba(201, 123, 123, 0.15);
+  --accent: #9B8AAE;
+  --accent-hover: #8577A0;
+  --shadow-sm: rgba(62, 52, 40, 0.06);
+  --shadow-md: rgba(62, 52, 40, 0.1);
+  --shadow-lg: rgba(62, 52, 40, 0.15);
+  --gradient-primary: linear-gradient(135deg, #B8956A 0%, #A17D4F 100%);
+  --gradient-success: linear-gradient(135deg, #7FA581 0%, #6B8E6D 100%);
+  --gradient-card: linear-gradient(135deg, #FAF8F3 0%, #F0EBE0 100%);
 }
 
 /* Reset & Base Styles */
