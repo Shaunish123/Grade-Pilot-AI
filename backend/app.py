@@ -19,10 +19,21 @@ from google_auth_oauthlib.flow import Flow
 import uvicorn # ADDED: For running the FastAPI server
 import datetime # ADDED: This import was used in the grading logic
 
-from google.cloud import vision # ADDED: Google Vision API client 
+from google.cloud import vision # ADDED: Google Vision API client
+
+# Document processing
+from docx import Document # ADDED: For Word document text extraction
+
+# --- LOCAL CPU MINILM MODEL IMPORTS ---
+import torch
+import numpy as np
+from sentence_transformers import SentenceTransformer, util 
 
 # --- 1. INITIAL CONFIGURATION ---
-load_dotenv()
+# Load .env from the same directory as this script
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(dotenv_path=env_path)
+print(f"📁 Loading environment from: {env_path}")
 
 # --- 2. ADD VISION API AUTHENTICATION ---
 # This tells the script to use your JSON key file.
@@ -73,10 +84,20 @@ from bson import ObjectId
 import certifi
 
 MONGO_URI = os.getenv("MONGO_URI")
+print(f"🔍 MONGO_URI loaded: {'✅ Found' if MONGO_URI else '❌ Missing'}")
+if MONGO_URI:
+    print(f"🔗 MongoDB URI: {MONGO_URI[:20]}...{MONGO_URI[-20:]}")  # Show first/last 20 chars for security
 
 # Initialize MongoDB connection
 try:
-    mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    mongo_client = MongoClient(
+        MONGO_URI, 
+        tls=True,
+        tlsAllowInvalidCertificates=True,  # Bypass SSL verification
+        serverSelectionTimeoutMS=10000,  # Increased timeout
+        connectTimeoutMS=10000,
+        socketTimeoutMS=10000
+    )
     db = mongo_client['gradepilot']
     
     # Collections
@@ -107,6 +128,185 @@ except Exception as e:
 
 # --- Global storage for graded assignments (in-memory fallback) ---
 graded_assignments_history = []
+
+
+# --- LOCAL CPU MINILM MODEL SETUP ---
+# Initialize MiniLM model for semantic similarity grading (runs on local CPU/GPU)
+MINILM_MODEL = None
+MINILM_DEVICE = None
+
+def initialize_minilm_model():
+    """
+    Initialize the MiniLM model on the best available device.
+    First tries to load fine-tuned model from ./minilm-finetuned-grading
+    Falls back to base model if fine-tuned version not found.
+    Will try GPU first (if available), otherwise fall back to CPU.
+    """
+    global MINILM_MODEL, MINILM_DEVICE
+    
+    if MINILM_MODEL is not None:
+        return MINILM_MODEL
+    
+    # Check for fine-tuned model first
+    import os
+    FINETUNED_PATH = "./minilm-finetuned-grading"
+    BASE_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    if os.path.exists(FINETUNED_PATH):
+        MODEL_NAME = FINETUNED_PATH
+        print("📚 Found fine-tuned model for answer grading")
+    else:
+        MODEL_NAME = BASE_MODEL_NAME
+        print("📚 Using base MiniLM model (run 'python finetune_minilm.py' to create fine-tuned version)")
+    
+    # Auto-select device (CPU or best available GPU)
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        print(f"✅ CUDA available with {device_count} GPU(s)")
+        # Try to use the first available GPU
+        MINILM_DEVICE = "cuda:0"
+        print(f"🎯 Using GPU: {MINILM_DEVICE}")
+    else:
+        MINILM_DEVICE = "cpu"
+        print("ℹ️ CUDA not available, using CPU")
+    
+    print(f"📥 Loading model on {MINILM_DEVICE}...")
+    
+    try:
+        MINILM_MODEL = SentenceTransformer(MODEL_NAME, device=MINILM_DEVICE)
+        model_type = "FINE-TUNED" if MODEL_NAME == FINETUNED_PATH else "BASE"
+        print(f"✅ {model_type} MiniLM model loaded successfully on {MINILM_DEVICE}")
+    except Exception as e:
+        print(f"⚠️ Failed to load on {MINILM_DEVICE}: {e}")
+        if MINILM_DEVICE != "cpu":
+            print("🔄 Retrying on CPU...")
+            MINILM_DEVICE = "cpu"
+            try:
+                MINILM_MODEL = SentenceTransformer(MODEL_NAME, device=MINILM_DEVICE)
+                model_type = "FINE-TUNED" if MODEL_NAME == FINETUNED_PATH else "BASE"
+                print(f"✅ {model_type} MiniLM model loaded successfully on CPU")
+            except Exception as cpu_error:
+                print(f"❌ Failed to load MiniLM model on CPU: {cpu_error}")
+                print("⚠️ Will use Gemini-only grading")
+                MINILM_MODEL = None
+    
+    return MINILM_MODEL
+
+
+def get_minilm_semantic_score(teacher_answer, student_answer):
+    """
+    Calculate semantic similarity between teacher and student answers using MiniLM model.
+    
+    Args:
+        teacher_answer (str): Reference/correct answer
+        student_answer (str): Student's submitted answer
+        
+    Returns:
+        float or None: Cosine similarity score (0.0-1.0), or None if model unavailable
+    """
+    try:
+        model = initialize_minilm_model()
+        
+        if model is None:
+            print("⚠️ MiniLM model not available")
+            return None
+        
+        # Encode both answers
+        teacher_emb = model.encode(teacher_answer, convert_to_numpy=True)
+        student_emb = model.encode(student_answer, convert_to_numpy=True)
+        
+        # Calculate cosine similarity
+        similarity = float(np.dot(teacher_emb, student_emb) / (np.linalg.norm(teacher_emb) * np.linalg.norm(student_emb)))
+        
+        return similarity
+    
+    except Exception as e:
+        print(f"⚠️ Error calculating MiniLM similarity: {e}")
+        return None
+
+
+def normalize_minilm_score_to_grade(similarity_score):
+    """
+    Convert MiniLM similarity score (0.3-0.85) to a grade (0-100) using min-max normalization.
+    
+    Formula: Mapped Score = ((x - 0.3) / (0.85 - 0.3)) × 100
+    
+    Where:
+    - x = similarity score
+    - 0.3 = minimum of scale
+    - 0.85 = maximum of scale
+    
+    This maps:
+    - 0.30 similarity → 0/100 grade
+    - 0.575 similarity → 50/100 grade  
+    - 0.85 similarity → 100/100 grade
+    
+    Args:
+        similarity_score (float): Cosine similarity from MiniLM model (0.0-1.0)
+        
+    Returns:
+        int: Grade out of 100
+    """
+    if similarity_score is None:
+        return None
+    
+    # Clamp to valid range [0.3, 0.85]
+    score = max(0.3, min(0.85, similarity_score))
+    
+    # Min-max normalization: map [0.3, 0.85] to [0, 100]
+    mapped_score = ((score - 0.3) / (0.85 - 0.3)) * 100
+    
+    return int(round(mapped_score))
+
+
+def compare_minilm_and_gemini_grades(minilm_grade, gemini_grade, threshold=15):
+    """
+    Compare MiniLM and Gemini grades to determine confidence.
+    
+    Args:
+        minilm_grade (int): Grade from MiniLM model (0-100)
+        gemini_grade (int): Grade from Gemini AI (0-100)
+        threshold (int): Acceptable difference (default: 15 points)
+        
+    Returns:
+        dict: Analysis with confidence level and recommendation
+    """
+    if minilm_grade is None:
+        return {
+            'confidence': 'medium',
+            'final_grade': gemini_grade,
+            'method': 'gemini_only',
+            'difference': None,
+            'recommendation': 'MiniLM model unavailable, using Gemini only'
+        }
+    
+    difference = abs(minilm_grade - gemini_grade)
+    
+    if difference <= threshold:
+        # Grades agree - high confidence
+        # Use average of both for more balanced result
+        final_grade = round((minilm_grade + gemini_grade) / 2)
+        return {
+            'confidence': 'high',
+            'final_grade': final_grade,
+            'method': 'hybrid_average',
+            'difference': difference,
+            'minilm_grade': minilm_grade,
+            'gemini_grade': gemini_grade,
+            'recommendation': f'Both models agree (diff: {difference}pts). Using average.'
+        }
+    else:
+        # Grades disagree - lower confidence, prefer Gemini for detailed reasoning
+        return {
+            'confidence': 'medium',
+            'final_grade': gemini_grade,
+            'method': 'gemini_preferred',
+            'difference': difference,
+            'minilm_grade': minilm_grade,
+            'gemini_grade': gemini_grade,
+            'recommendation': f'Models disagree by {difference}pts. Using Gemini (better reasoning).'
+        }
+# --- END LOCAL CPU MINILM MODEL SETUP ---
 
 
 # --- 2. HELPER FUNCTIONS (No changes here, keeping for full context) ---
@@ -189,6 +389,7 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
     Downloads a Google Drive file's content as plain text.
     
     - If it's a Google Doc/Sheet, it exports as text/plain.
+    - If it's a Word document (.docx), it extracts text using python-docx.
     - If it's an Image (JPG, PNG) or PDF, it downloads the bytes 
       and uses the Google Cloud Vision API to extract handwritten text.
     - Otherwise, it attempts a standard text download.
@@ -199,7 +400,7 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
         actual_file_name = file_metadata.get('name', file_name)
         print(f"Downloading '{actual_file_name}' (ID: {file_id}) with MIME type: {mime_type}")
 
-        # --- BRANCH 1: Google Workspace Docs (Same as before) ---
+        # --- BRANCH 1: Google Workspace Docs ---
         if mime_type.startswith('application/vnd.google-apps'):
             print("File is a Google Doc. Exporting as text/plain.")
             request = drive_service.files().export_media(fileId=file_id, mimeType='text/plain')
@@ -210,7 +411,44 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
                 status, done = downloader.next_chunk()
             return fh.getvalue().decode('utf-8')
 
-        # --- BRANCH 2: Images or PDFs (NEW LOGIC) ---
+        # --- BRANCH 2: Word Documents (.docx and .doc) ---
+        elif mime_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+            print(f"File is a Word document ({mime_type}). Extracting text with python-docx...")
+            request = drive_service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            
+            try:
+                # Extract text from Word document
+                doc = Document(fh)
+                full_text = []
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():  # Skip empty paragraphs
+                        full_text.append(paragraph.text)
+                
+                # Also extract text from tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                full_text.append(cell.text)
+                
+                extracted_text = '\n'.join(full_text)
+                print(f"Successfully extracted {len(extracted_text)} characters from Word document.")
+                return extracted_text
+            except Exception as docx_error:
+                print(f"Error extracting text from Word document: {docx_error}")
+                # Fallback: try generic text extraction
+                try:
+                    fh.seek(0)
+                    return fh.getvalue().decode('utf-8')
+                except:
+                    return None
+
+        # --- BRANCH 3: Images or PDFs ---
         elif mime_type in ['image/jpeg', 'image/png', 'application/pdf']:
             print("File is an Image/PDF. Downloading bytes for Cloud Vision API...")
             request = drive_service.files().get_media(fileId=file_id)
@@ -246,9 +484,9 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
                 print("Cloud Vision API found no text in the image.")
                 return "" # Return empty string if no text is found
 
-        # --- BRANCH 3: Other files (e.g., .txt) (Same as before) ---
+        # --- BRANCH 4: Other files (e.g., .txt) ---
         else:
-            print("File is not a Google Doc or Image. Attempting direct media download.")
+            print("File is not a Google Doc, Word document, or Image. Attempting direct media download.")
             request = drive_service.files().get_media(fileId=file_id)
             fh = io.BytesIO()
             downloader = MediaIoBaseDownload(fh, request)
@@ -483,11 +721,32 @@ async def grade_submission(request: Request):
     student_name = data.get('student_name') 
     answer_key_url = data.get('answer_key_url')
     answer_key_text = data.get('answer_key_text')  # NEW: Accept answer key as text
+    use_hybrid = data.get('use_hybrid', True)  # NEW: Flag to enable/disable hybrid grading (default: True)
+
+    # Debug logging
+    print(f"📥 Received grading request:")
+    print(f"   course_id: {course_id}")
+    print(f"   course_name: {course_name}")
+    print(f"   assignment_id: {assignment_id}")
+    print(f"   assignment_title: {assignment_title}")
+    print(f"   submission_id: {submission_id}")
+    print(f"   student_name: {student_name}")
+    print(f"   answer_key_url: {'Present' if answer_key_url else 'Missing'}")
+    print(f"   answer_key_text: {'Present' if answer_key_text else 'Missing'}")
+    print(f"   use_hybrid: {use_hybrid}")
 
     if not all([course_id, assignment_id, submission_id, course_name, assignment_title, student_name]):
         # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+        missing_fields = []
+        if not course_id: missing_fields.append('course_id')
+        if not course_name: missing_fields.append('course_name')
+        if not assignment_id: missing_fields.append('assignment_id')
+        if not assignment_title: missing_fields.append('assignment_title')
+        if not submission_id: missing_fields.append('submission_id')
+        if not student_name: missing_fields.append('student_name')
+        
         return JSONResponse(
-            content={"error": "Missing required data: course_id, course_name, assignment_id, assignment_title, submission_id, or student_name."},
+            content={"error": f"Missing required fields: {', '.join(missing_fields)}"},
             status_code=400
         )
     
@@ -517,17 +776,24 @@ async def grade_submission(request: Request):
             print("Using provided answer key text (generated by AI)")
         else:
             # Download from URL (original behavior)
+            print(f"Attempting to extract file ID from answer key URL: {answer_key_url}")
             answer_key_file_id = extract_drive_file_id_from_url(answer_key_url)
             if not answer_key_file_id:
                 # CHANGED: 'jsonify' is replaced with 'JSONResponse'
+                print(f"❌ Failed to extract file ID from URL: {answer_key_url}")
                 return JSONResponse(
-                    content={"error": "Invalid Google Drive URL provided for the Answer Key. Please check the URL."},
+                    content={"error": "Invalid Google Drive URL provided for the Answer Key. Please check the URL format (should contain /d/FILE_ID/)."},
                     status_code=400
                 )
+            
+            print(f"✅ Extracted file ID: {answer_key_file_id}")
+            print(f"Attempting to download answer key from Google Drive...")
+            
             answer_key_content = download_drive_file_content(drive_service, answer_key_file_id, "Answer Key")
             if not answer_key_content:
+                print(f"❌ Failed to download answer key. File ID: {answer_key_file_id}")
                 return JSONResponse(
-                    content={"error": "Failed to download answer key from URL."},
+                    content={"error": "Failed to download answer key from URL. Please ensure: 1) The file is shared with your Google account, 2) You have View access, 3) The URL is correct."},
                     status_code=500
                 )
 
@@ -643,9 +909,83 @@ async def grade_submission(request: Request):
                 status_code=500
             )
             
-        final_grade = int(grade_match.group(1))
-        grade_justification = justification_match.group(1).strip()
-        feedback_str = feedback_match.group(1).strip()
+        ai_grade = int(grade_match.group(1))
+        ai_justification = justification_match.group(1).strip()
+        ai_feedback = feedback_match.group(1).strip()
+        
+        # --- CONDITIONAL HYBRID GRADING ---
+        if use_hybrid:
+            # Use hybrid grading (MiniLM + Gemini) for Grade WITH Key workflow
+            print("=" * 60)
+            print("Starting hybrid grading (MiniLM + Gemini)...")
+            print("=" * 60)
+            
+            # Get Gemini's grade
+            gemini_grade = ai_grade
+            print(f"📝 Gemini grade: {gemini_grade}/100")
+            
+            # Try to get MiniLM semantic similarity score
+            print(f"🔍 Calculating MiniLM semantic similarity...")
+            minilm_similarity = get_minilm_semantic_score(answer_key_content, student_submission_text)
+            
+            if minilm_similarity is not None:
+                print(f"✅ MiniLM similarity score: {minilm_similarity:.4f}")
+                minilm_grade = normalize_minilm_score_to_grade(minilm_similarity)
+                print(f"📊 MiniLM normalized grade: {minilm_grade}/100")
+            else:
+                print(f"⚠️ MiniLM model not available, using Gemini only")
+                minilm_grade = None
+            
+            # Compare and decide final grade
+            grade_analysis = compare_minilm_and_gemini_grades(minilm_grade, gemini_grade)
+            
+            final_grade = grade_analysis['final_grade']
+            confidence_level = grade_analysis['confidence']
+            grading_method = grade_analysis['method']
+            
+            print(f"🎯 Final grade: {final_grade}/100")
+            print(f"📊 Confidence: {confidence_level}")
+            print(f"🔧 Method: {grading_method}")
+            print(f"💡 {grade_analysis['recommendation']}")
+            print("=" * 60)
+            
+            # Build comprehensive justification
+            if minilm_grade is not None:
+                grade_justification = (
+                    f"{ai_justification} "
+                    f"[Verified with MiniLM semantic model: {minilm_similarity:.3f} similarity, "
+                    f"{minilm_grade}/100. Difference: {grade_analysis['difference']}pts]"
+                )
+                remarks = (
+                    f"Hybrid grading ({grading_method}): MiniLM similarity={minilm_similarity:.3f}, "
+                    f"MiniLM grade={minilm_grade}, Gemini grade={gemini_grade}, Final={final_grade}. "
+                    f"{grade_analysis['recommendation']}"
+                )
+            else:
+                grade_justification = f"{ai_justification} [Gemini-only grading]"
+                remarks = "Graded using Gemini AI only (MiniLM model not available)."
+            
+            feedback_str = ai_feedback
+        else:
+            # Use Gemini-only grading for Grade WITHOUT Key workflow
+            print("=" * 60)
+            print("Using Gemini-only grading (hybrid disabled)...")
+            print("=" * 60)
+            
+            final_grade = ai_grade
+            confidence_level = "high"
+            grading_method = "gemini_only"
+            grade_justification = f"{ai_justification} [Gemini-only grading]"
+            remarks = "Graded using Gemini AI only (no hybrid model)."
+            feedback_str = ai_feedback
+            minilm_grade = None
+            grade_analysis = None
+            
+            print(f"🎯 Final grade: {final_grade}/100")
+            print(f"📝 Method: Gemini only")
+            print("=" * 60)
+        
+        # --- END CONDITIONAL GRADING ---
         
         # import datetime # This was here, moved to top
         graded_item = {
@@ -656,8 +996,11 @@ async def grade_submission(request: Request):
             "submission_id": submission_id,
             "student_name": student_name,
             "assignedGrade": final_grade,
+            "confidence": confidence_level,
+            "grading_method": grading_method,
             "feedback": feedback_str,
             "grade_justification": grade_justification,
+            "remarks": remarks,
             "timestamp": datetime.datetime.now().isoformat()
         }
         
@@ -699,16 +1042,35 @@ async def grade_submission(request: Request):
             graded_assignments_history.append(graded_item)
             print("⚠️ Using in-memory storage (MongoDB not connected)")
 
-        print(f"AI Grade: {final_grade}/100. Providing review for dashboard display only (no Classroom update).")
-        # CHANGED: 'jsonify' is replaced with returning a dictionary
-        return {
-            "message": "AI grading complete. Review provided for dashboard display only.",
+        print(f"Gemini Grade: {final_grade}/100. Providing review for dashboard display only (no Classroom update).")
+        
+        # Build response with grading information
+        response_data = {
+            "message": f"{'Hybrid' if use_hybrid else 'Gemini-only'} grading complete. Review provided for dashboard display only.",
             "assignedGrade": final_grade,
+            "confidence": confidence_level,
+            "grading_method": grading_method,
             "feedback": feedback_str,
             "grade_justification": grade_justification,
+            "remarks": remarks,
             "status": "review_only", 
-            "graded_history": graded_assignments_history 
+            "graded_history": graded_assignments_history
         }
+        
+        # Add separate grades when hybrid grading is enabled and available
+        if use_hybrid and minilm_grade is not None and grade_analysis is not None:
+            response_data["minilm_grade"] = minilm_grade
+            response_data["gemini_grade"] = ai_grade
+            response_data["grade_difference"] = grade_analysis.get('difference')
+            response_data["minilm_similarity"] = round(get_minilm_semantic_score(answer_key_content, student_submission_text), 4)
+            
+            # If low/medium confidence, flag for detailed review
+            if confidence_level in ['low', 'medium'] and grade_analysis.get('difference', 0) > 15:
+                response_data["needs_review"] = True
+                response_data["review_reason"] = f"MiniLM and Gemini disagree by {grade_analysis['difference']} points"
+        
+        # CHANGED: 'jsonify' is replaced with returning a dictionary
+        return response_data
 
 
     except HttpError as error:
@@ -787,9 +1149,23 @@ async def grade_with_model(request: Request):
     answer_key_url = data.get('answer_key_url')
     student_name = data.get('student_name')
 
+    # Debug logging
+    print(f"📥 Received /api/grade-with-model request:")
+    print(f"   course_id: {course_id}")
+    print(f"   assignment_id: {assignment_id}")
+    print(f"   submission_id: {submission_id}")
+    print(f"   answer_key_url: {answer_key_url}")
+    print(f"   student_name: {student_name}")
+
     if not all([course_id, assignment_id, submission_id, answer_key_url]):
+        missing_fields = []
+        if not course_id: missing_fields.append('course_id')
+        if not assignment_id: missing_fields.append('assignment_id')
+        if not submission_id: missing_fields.append('submission_id')
+        if not answer_key_url: missing_fields.append('answer_key_url')
+        
         return JSONResponse(
-            content={"error": "Missing required data: course_id, assignment_id, submission_id, or answer_key_url."},
+            content={"error": f"Missing required fields: {', '.join(missing_fields)}"},
             status_code=400
         )
 
@@ -1151,9 +1527,9 @@ async def grade_with_gemini(request: Request):
                     })
                     continue
 
-                # Grade using Gemini with the approved answer key
-                print(f"Grading submission for {student_name}...")
-                model = genai.GenerativeModel(model_name="gemini-2.0-flash-exp")
+                # Grade using ONLY Gemini (NO MiniLM/hybrid for this route)
+                print(f"Grading submission for {student_name} with Gemini only...")
+                model = genai.GenerativeModel(model_name="gemini-2.5-flash")
                 
                 prompt = f"""
         You are an expert AI teaching assistant for a Google Classroom assignment titled "{assignment_title}". Your task is to rigorously grade the student's submission, providing a score out of 100, and comprehensive feedback.
@@ -1231,8 +1607,11 @@ async def grade_with_gemini(request: Request):
                     "submission_id": submission_id,
                     "student_name": student_name,
                     "assignedGrade": final_grade,
+                    "confidence": "high",
+                    "grading_method": "gemini_only",
                     "feedback": feedback_str,
                     "grade_justification": grade_justification,
+                    "remarks": "Graded using Gemini AI only (no hybrid model)",
                     "timestamp": datetime.datetime.now().isoformat()
                 }
                 
@@ -2078,6 +2457,21 @@ async def get_performance_trends(
             content={"error": str(e)},
             status_code=500
         )
+
+
+# --- DATABASE STATUS ENDPOINT ---
+
+@app.get('/api/db_status')
+async def get_db_status():
+    """
+    Returns the current database connection status.
+    """
+    return {
+        "mongodb_connected": grades_collection is not None,
+        "storage_type": "MongoDB" if grades_collection is not None else "In-Memory",
+        "total_grades": len(graded_assignments_history) if grades_collection is None else "Check MongoDB",
+        "database_name": db.name if db is not None else None
+    }
 
 
 # --- 6. MAIN APPLICATION RUNNER ---

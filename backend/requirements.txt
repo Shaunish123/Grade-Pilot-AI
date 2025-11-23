@@ -1,32 +1,43 @@
-Flask==2.3.3
-Flask-Cors==3.0.10
-# python-dotenv==1.0.0
-# google-generativeai==0.3.1 # Or the latest stable version
-# google-api-python-client==2.113.0 # Or the latest stable version
-# google-auth-oauthlib==1.2.0 # Or the latest stable version
-# google-auth==2.26.2 # Explicitly adding google-auth as a core dependency
+# ============================================
+# GRADEPILOT BACKEND DEPENDENCIES
+# Latest versions - auto-upgraded
+# ============================================
 
-# Core web framework (Replaces Flask)
+# Core web framework
 fastapi
-
-# ASGI server to run FastAPI (Replaces Flask's built-in server)
 uvicorn[standard]
 
-# For loading .env files
+# Environment variables
 python-dotenv
 
-# For Google Gemini AI
+# Google AI and APIs
 google-generativeai
-
-# For Google Classroom/Drive APIs
 google-api-python-client
 google-auth-oauthlib
 google-auth
-
-# ADD THIS FOR HANDWRITING RECOGNITION
 google-cloud-vision
 
-# MongoDB Integration
+# Database
 pymongo
 dnspython
 certifi
+
+# Document processing
+python-docx
+
+# HTTP client
+aiohttp
+
+# ============================================
+# LOCAL MINILM MODEL DEPENDENCIES
+# ============================================
+
+# NumPy (compatible with PyTorch)
+numpy
+
+# PyTorch and Transformers
+torch
+sentence-transformers
+
+# Note: This will install latest compatible versions
+# PyTorch will auto-detect and use GPU if available

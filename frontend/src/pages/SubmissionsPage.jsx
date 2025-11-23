@@ -12,6 +12,10 @@ const SubmissionsPage = () => {
   
   // Get the generated answer key from navigation state (if coming from Grade Without Key workflow)
   const generatedAnswerKey = location.state?.generatedAnswerKey || null;
+  // Get the answer key URL from navigation state (if coming from Grade With Key workflow)
+  const answerKeyUrl = location.state?.answerKeyUrl || null;
+  // Get the useHybrid flag (false for Grade Without Key, true for Grade With Key)
+  const useHybrid = location.state?.useHybrid !== false; // Default to true (hybrid) unless explicitly set to false
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -95,6 +99,8 @@ const SubmissionsPage = () => {
         assignmentId={assignmentId}
         assignmentTitle={assignmentDetails?.title}
         generatedAnswerKey={generatedAnswerKey}
+        providedAnswerKeyUrl={answerKeyUrl}
+        useHybrid={useHybrid}
       />
     </div>
   );

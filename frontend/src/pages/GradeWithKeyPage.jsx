@@ -19,20 +19,17 @@ const GradeWithKeyPage = () => {
     setError('');
 
     try {
-      const response = await API.post('/api/grade-with-model', {
-        course_id: courseId,
-        assignment_id: assignmentId,
-        answer_key_url: answerKeyUrl
-      });
-
-      // Navigate to submissions page with graded results
+      // Navigate to submissions page with answer key URL
+      // Individual submissions will be graded there using /api/grade endpoint
       navigate(`/course/${courseId}/assignment/${assignmentId}/submissions`, {
-        state: { gradingResults: response.data }
+        state: { 
+          answerKeyUrl: answerKeyUrl,
+          useAnswerKey: true
+        }
       });
     } catch (err) {
-      console.error('Error grading submissions:', err);
-      setError(err.response?.data?.error || 'Failed to grade submissions. Please try again.');
-    } finally {
+      console.error('Error navigating:', err);
+      setError('Failed to proceed. Please try again.');
       setLoading(false);
     }
   };

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { API } from '../App';
 
-function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle, generatedAnswerKey }) {
+function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle, generatedAnswerKey, providedAnswerKeyUrl, useHybrid = true }) {
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [gradingSubmissions, setGradingSubmissions] = useState(new Set());
-  const [answerKeyUrl, setAnswerKeyUrl] = useState('');
+  const [answerKeyUrl, setAnswerKeyUrl] = useState(providedAnswerKeyUrl || '');
   const [answerKeyText, setAnswerKeyText] = useState(generatedAnswerKey || '');
   const [gradingResults, setGradingResults] = useState({});
   const [batchGrading, setBatchGrading] = useState(false);
@@ -36,8 +36,13 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
         gradedHistory.forEach(gradeRecord => {
           submissionsWithGrades[gradeRecord.submission_id] = {
             assignedGrade: gradeRecord.assignedGrade,
+            model_grade: gradeRecord.model_grade,
+            ai_grade: gradeRecord.ai_grade,
+            confidence: gradeRecord.confidence || 'high',
+            grading_method: gradeRecord.grading_method || 'ai',
             feedback: gradeRecord.feedback || 'No feedback available',
             grade_justification: gradeRecord.grade_justification || 'No justification available',
+            remarks: gradeRecord.remarks || '',
             status: 'complete'
           };
         });
@@ -87,7 +92,8 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
         assignment_id: assignmentId,
         assignment_title: assignmentTitle,
         submission_id: submissionId,
-        student_name: studentName
+        student_name: studentName,
+        use_hybrid: useHybrid  // Pass hybrid grading flag to backend
       };
       
       // Add either answer_key_text or answer_key_url
@@ -103,8 +109,13 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
         ...prev,
         [submissionId]: {
           assignedGrade: response.data.assignedGrade,
+          model_grade: response.data.model_grade,
+          ai_grade: response.data.ai_grade,
+          confidence: response.data.confidence || 'high',
+          grading_method: response.data.grading_method || 'ai',
           feedback: response.data.feedback,
           grade_justification: response.data.grade_justification,
+          remarks: response.data.remarks || '',
           status: 'complete'
         }
       }));
@@ -578,23 +589,135 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
                             }}>
                               ✓
                             </span>
-                            <div>
-                              <p style={{ 
-                                color: '#10b981', 
-                                fontWeight: '700', 
-                                fontSize: '1.5rem',
-                                marginBottom: '0.25rem'
-                              }}>
-                                {gradingResult.assignedGrade}/100
-                              </p>
-                              <p style={{ 
-                                color: 'var(--secondary-text)', 
-                                fontSize: '0.85rem'
-                              }}>
-                                Graded and Saved
-                              </p>
+                            <div style={{ flex: 1 }}>
+                              {/* Show confidence badge for low confidence grades */}
+                              {gradingResult.confidence === 'low' && (
+                                <div style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                  padding: '0.375rem 0.75rem',
+                                  backgroundColor: '#fef3c7',
+                                  color: '#92400e',
+                                  borderRadius: '6px',
+                                  fontSize: '0.875rem',
+                                  fontWeight: '600',
+                                  marginBottom: '0.75rem',
+                                  border: '1px solid #fbbf24'
+                                }}>
+                                  <span>⚠️</span>
+                                  <span>Recheck Required - Low Confidence</span>
+                                </div>
+                              )}
+                              
+                              {/* Dual grade display for low confidence */}
+                              {gradingResult.confidence === 'low' && gradingResult.model_grade && gradingResult.ai_grade ? (
+                                <div style={{
+                                  display: 'flex',
+                                  gap: '1rem',
+                                  marginBottom: '0.5rem'
+                                }}>
+                                  <div style={{
+                                    padding: '0.75rem 1rem',
+                                    backgroundColor: 'var(--surface)',
+                                    border: '2px solid #8b5cf6',
+                                    borderRadius: '8px',
+                                    flex: 1
+                                  }}>
+                                    <p style={{ 
+                                      color: 'var(--secondary-text)', 
+                                      fontSize: '0.75rem',
+                                      marginBottom: '0.25rem',
+                                      fontWeight: '600'
+                                    }}>
+                                      Model Grade
+                                    </p>
+                                    <p style={{ 
+                                      color: '#8b5cf6', 
+                                      fontWeight: '700', 
+                                      fontSize: '1.35rem',
+                                      margin: 0
+                                    }}>
+                                      {gradingResult.model_grade}/100
+                                    </p>
+                                  </div>
+                                  <div style={{
+                                    padding: '0.75rem 1rem',
+                                    backgroundColor: 'var(--surface)',
+                                    border: '2px solid #3b82f6',
+                                    borderRadius: '8px',
+                                    flex: 1
+                                  }}>
+                                    <p style={{ 
+                                      color: 'var(--secondary-text)', 
+                                      fontSize: '0.75rem',
+                                      marginBottom: '0.25rem',
+                                      fontWeight: '600'
+                                    }}>
+                                      AI Grade
+                                    </p>
+                                    <p style={{ 
+                                      color: '#3b82f6', 
+                                      fontWeight: '700', 
+                                      fontSize: '1.35rem',
+                                      margin: 0
+                                    }}>
+                                      {gradingResult.ai_grade}/100
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Single grade display for high confidence */
+                                <div>
+                                  <p style={{ 
+                                    color: '#10b981', 
+                                    fontWeight: '700', 
+                                    fontSize: '1.5rem',
+                                    marginBottom: '0.25rem'
+                                  }}>
+                                    {gradingResult.assignedGrade || gradingResult.model_grade || gradingResult.ai_grade}/100
+                                  </p>
+                                  <p style={{ 
+                                    color: 'var(--secondary-text)', 
+                                    fontSize: '0.85rem'
+                                  }}>
+                                    {gradingResult.grading_method === 'model' ? 'Model Grade (High Confidence)' : 
+                                     gradingResult.grading_method === 'comparison' ? 'Requires Review' :
+                                     'AI Grade'}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
+                          
+                          {/* Remarks section for additional context */}
+                          {gradingResult.remarks && (
+                            <div style={{ 
+                              marginBottom: '1rem',
+                              padding: '0.75rem',
+                              backgroundColor: gradingResult.confidence === 'low' ? '#fef3c7' : '#d1fae5',
+                              borderRadius: '8px',
+                              border: `1px solid ${gradingResult.confidence === 'low' ? '#fbbf24' : '#10b981'}`
+                            }}>
+                              <div style={{ 
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '0.5rem'
+                              }}>
+                                <span style={{ fontSize: '1rem', flexShrink: 0 }}>
+                                  {gradingResult.confidence === 'low' ? '⚠️' : 'ℹ️'}
+                                </span>
+                                <p style={{ 
+                                  color: gradingResult.confidence === 'low' ? '#92400e' : '#065f46',
+                                  fontSize: '0.9rem',
+                                  lineHeight: '1.5',
+                                  margin: 0
+                                }}>
+                                  <strong>Remarks:</strong> {gradingResult.remarks}
+                                </p>
+                              </div>
+                            </div>
+                          )}
                           
                           <div style={{ marginBottom: '1rem' }}>
                             <div style={{ 
@@ -693,7 +816,7 @@ function SubmissionDetail({ courseId, courseName, assignmentId, assignmentTitle,
                     ) : isGraded ? (
                       '🔄 Re-Grade'
                     ) : (
-                      '✓ Grade Submission'
+                      '✓ Grade'
                     )}
                   </button>
                 </div>

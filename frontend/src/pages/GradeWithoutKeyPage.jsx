@@ -61,9 +61,13 @@ const GradeWithoutKeyPage = () => {
   };
 
   const handleApproveAndGrade = async () => {
-    // Navigate to submissions page with the generated answer key
+    // Navigate to submissions page with the generated answer key TEXT
+    // Pass useHybrid: false to disable MiniLM hybrid grading (Gemini-only)
     navigate(`/course/${courseId}/assignment/${assignmentId}/submissions`, {
-      state: { generatedAnswerKey: answerKey }
+      state: { 
+        generatedAnswerKey: answerKey,
+        useHybrid: false  // Disable hybrid grading for Grade Without Key workflow
+      }
     });
   };
 
