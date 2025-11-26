@@ -502,7 +502,8 @@ def download_drive_file_content(drive_service, file_id, file_name="unknown"):
 
     except HttpError as error:
         print(f'Google Drive API Error downloading file "{actual_file_name}" (ID: {file_id}): {error.resp.status} - {error.content.decode("utf-8")}')
-        return None
+        return None   
+
     except Exception as e:
         print(f'Unexpected error in download_drive_file_content for "{actual_file_name}" (ID: {file_id}): {e}')
         return None
@@ -546,13 +547,10 @@ async def callback(request: Request):
         redirect_uri=request.url_for('callback') # CHANGED: 'url_for' is now 'request.url_for'
     )
     try:
-        # CHANGED: 'request.url' is now a 'URL' object, use 'str(request.url)'
         flow.fetch_token(authorization_response=str(request.url))
         credentials = flow.credentials
-        # CHANGED: 'session' is now 'request.session'
         request.session['credentials'] = credentials_to_dict(credentials)
         request.session.pop('state', None) # CHANGED: 'session' is now 'request.session'
-        # CHANGED: 'redirect' is now 'RedirectResponse'
         return RedirectResponse('http://localhost:5173/dashboard')
     except Exception as e:
         print(f"Error fetching token: {e}")
