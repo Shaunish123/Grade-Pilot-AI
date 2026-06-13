@@ -1,9 +1,14 @@
-# GRADE PILOT AI
+🎓 GRADE PILOT AI
+A multi-modal automated grading system designed to drastically reduce teacher workload by intelligently evaluating assignments. By automating the assessment pipeline, Grade Pilot AI enables educators to focus more on student development, mentorship, and overall academic growth.
 
-> An automatic grading system that grades your assignments, reducing a teacher's workload and enabling them to focus more on
-students and their overall development.
+✨ Key Features
+Multi-Modal Evaluation: Processes both text-based and handwritten assignments seamlessly.
 
----
+Intelligent Document Parsing: Utilizes Google Cloud Vision OCR for highly accurate extraction of student submissions.
+
+Advanced LLM Orchestration: Powered by Gemini for complex reasoning and Mistral (SFR-embeddings) for precise semantic search and context retrieval.
+
+Automated Feedback Loop: Generates constructive, standardized feedback for students based on grading rubrics.
 
 ## 🚀 Tech Stack
 
